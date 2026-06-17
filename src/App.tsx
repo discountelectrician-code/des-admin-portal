@@ -33,11 +33,12 @@ import {
 import Navbar from './components/Navbar';
 import TelemetryDashboard from './components/TelemetryDashboard';
 import PermissionsManager from './components/PermissionsManager';
+import PaymentSettings from './components/PaymentSettings';
 
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'telemetry' | 'permissions'>('telemetry');
+  const [activeTab, setActiveTab] = useState<'telemetry' | 'permissions' | 'payment'>('telemetry');
   
   // Auth Form State
   const [isRegistering, setIsRegistering] = useState(false);
@@ -208,26 +209,34 @@ export default function App() {
           )}
 
           {/* Quick tab cards for Mobile/Desktop fallback */}
-          <div className="flex md:hidden bg-white p-1 rounded-xl border border-slate-200 shadow-sm max-w-xs mx-auto text-xs font-bold">
+          <div className="flex md:hidden bg-white p-1 rounded-xl border border-slate-200 shadow-sm max-w-sm mx-auto text-xs font-bold">
             <button 
               onClick={() => setActiveTab('telemetry')}
-              className={`flex-1 py-2 rounded-lg text-center ${activeTab === 'telemetry' ? 'bg-slate-900 text-white shadow-sm' : 'text-slate-500'}`}
+              className={`flex-1 py-1.5 rounded-lg text-center ${activeTab === 'telemetry' ? 'bg-slate-900 text-white shadow-sm' : 'text-slate-500'}`}
             >
               Telemetry
             </button>
             <button 
               onClick={() => setActiveTab('permissions')}
-              className={`flex-1 py-2 rounded-lg text-center ${activeTab === 'permissions' ? 'bg-slate-900 text-white shadow-sm' : 'text-slate-500'}`}
+              className={`flex-1 py-1.5 rounded-lg text-center ${activeTab === 'permissions' ? 'bg-slate-900 text-white shadow-sm' : 'text-slate-500'}`}
             >
               Permissions
+            </button>
+            <button 
+              onClick={() => setActiveTab('payment')}
+              className={`flex-1 py-1.5 rounded-lg text-center ${activeTab === 'payment' ? 'bg-slate-900 text-white shadow-sm' : 'text-slate-500'}`}
+            >
+              Payment
             </button>
           </div>
 
           {/* Render Core Component tab */}
           {activeTab === 'telemetry' ? (
             <TelemetryDashboard />
-          ) : (
+          ) : activeTab === 'permissions' ? (
             <PermissionsManager />
+          ) : (
+            <PaymentSettings />
           )}
 
         </main>

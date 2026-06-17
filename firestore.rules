@@ -77,6 +77,15 @@ service cloud.firestore {
         && data.details.size() <= 2000;
     }
 
+    function isValidPaymentConfig(data) {
+      return data.keys().hasAll(['provider', 'updatedBy', 'updatedAt'])
+        && data.keys().size() == 3
+        && data.provider is string
+        && data.provider in ['stripe', 'square']
+        && data.updatedBy is string
+        && data.updatedAt == request.time;
+    }
+
     // 4. Entity Access Path Matching
     
     // User Permissions & Custom Claims Sync collection
@@ -115,6 +124,15 @@ service cloud.firestore {
 
       // Telemetry logs are strictly append-only; update/delete operations are forbidden
       allow update, delete: if false;
+    }
+
+    // Central Settings collection for system-wide configurations
+    match /settings/{settingId} {
+      // Settings are readable by any authenticated personnel in the Discount Electrical workspace
+      allow read: if isSignedIn();
+
+      // Settings updates are strictly preserved for Administrator accounts
+      allow write: if isAdmin() && isValidId(settingId) && settingId == 'payment_config' && isValidPaymentConfig(incoming());
     }
   }
 }

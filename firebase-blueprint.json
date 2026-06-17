@@ -52,6 +52,17 @@
         "details": { "type": "string", "description": "Additional JSON metadata or details as string." }
       },
       "required": ["id", "timestamp", "eventType", "subdomain", "userId", "userEmail", "message", "status"]
+    },
+    "payment_config": {
+      "title": "Payment Config",
+      "description": "System config representing the selected payment provider.",
+      "type": "object",
+      "properties": {
+        "provider": { "type": "string", "enum": ["stripe", "square"], "description": "The chosen active payment gateway." },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "When the payment gateway select state was saved." },
+        "updatedBy": { "type": "string", "description": "User email or UID who toggled the provider." }
+      },
+      "required": ["provider"]
     }
   },
   "firestore": {
@@ -62,6 +73,10 @@
     "tracking_events/{eventId}": {
       "schema": "tracking_event",
       "description": "Secure collection storing telemetry tracking events from all subdomains in the Discount Electrical ecosystem."
+    },
+    "settings/payment_config": {
+      "schema": "payment_config",
+      "description": "Stores the central payment gateway toggle setting."
     }
   }
 }
