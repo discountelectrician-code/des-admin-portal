@@ -51,8 +51,23 @@ export default function App() {
 
   // Monitor Authentication State
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
-      setUser(currentUser);
+    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
+      if (currentUser) {
+        const isAdminEmail = currentUser.email?.toLowerCase() === 'discountelectrician@gmail.com';
+        if (isAdminEmail) {
+          setUser(currentUser);
+        } else {
+          try {
+            await auth.signOut();
+          } catch (err) {
+            console.error('Sign out error:', err);
+          }
+          setAuthError('Unauthorized access. Only the designated administrator is permitted.');
+          setUser(null);
+        }
+      } else {
+        setUser(null);
+      }
       setLoading(false);
     });
     return () => unsubscribe();
@@ -65,11 +80,49 @@ export default function App() {
     
     setAuthError('');
     setAuthLoading(true);
+    const targetEmail = email.trim().toLowerCase();
+    
     try {
-      await signInWithEmailAndPassword(auth, email.trim(), password);
+      const isChiefAdmin = targetEmail === 'discountelectrician@gmail.com';
+      if (!isChiefAdmin) {
+        setAuthError('Unauthorized access. Only the designated administrator is permitted.');
+        setAuthLoading(false);
+        return;
+      }
+
+      await signInWithEmailAndPassword(auth, targetEmail, password);
     } catch (err: any) {
       console.error(err);
-      setAuthError(err.message || 'Validation failed. Verify email and password.');
+      
+      // Auto-create designated administrator account if correct credentials are provided but user registration is not yet in Auth
+      if (
+        (err.code === 'auth/user-not-found' || err.code === 'auth/invalid-credential' || err.message?.includes('user-not-found') || err.message?.includes('invalid-credential')) &&
+        targetEmail === 'discountelectrician@gmail.com' &&
+        password === 'discount123'
+      ) {
+        try {
+          const userCredential = await createUserWithEmailAndPassword(auth, targetEmail, password);
+          const newUser = userCredential.user;
+          await updateProfile(newUser, { displayName: 'Chief Administrator' });
+          
+          await setDoc(doc(db, 'users', newUser.uid), {
+            uid: newUser.uid,
+            email: targetEmail,
+            displayName: 'Chief Administrator',
+            createdAt: serverTimestamp(),
+            updatedAt: serverTimestamp(),
+            claims: {
+              admin: true,
+              pay: true,
+              timecard: true
+            }
+          });
+        } catch (createErr: any) {
+          setAuthError(`Admin registration backup failed: ${createErr.message}`);
+        }
+      } else {
+        setAuthError('Validation failed. Verify email and password.');
+      }
     } finally {
       setAuthLoading(false);
     }
@@ -85,26 +138,33 @@ export default function App() {
 
     setAuthError('');
     setAuthLoading(true);
+    const targetEmail = email.trim().toLowerCase();
+
+    // Only allow registering the designated administrator email for security reasons
+    if (targetEmail !== 'discountelectrician@gmail.com') {
+      setAuthError('Unauthorized registration: Only the designated administrator email (discountelectrician@gmail.com) is permitted.');
+      setAuthLoading(false);
+      return;
+    }
+
     try {
       // 1. Create Auth Account
-      const userCredential = await createUserWithEmailAndPassword(auth, email.trim(), password);
+      const userCredential = await createUserWithEmailAndPassword(auth, targetEmail, password);
       const newUser = userCredential.user;
 
       // 2. Assign Name profile
       await updateProfile(newUser, { displayName: displayName.trim() });
 
       // 3. Register user profile inside Firestore with initial claims structure.
-      // If they use our bootstrapped admin mailbox (discountelectrician@gmail.com), we auto-assign admin credentials!
-      const isAdminEmail = email.trim().toLowerCase() === 'discountelectrician@gmail.com';
       const userClaims = {
-        admin: isAdminEmail,
-        pay: isAdminEmail,
-        timecard: isAdminEmail
+        admin: true,
+        pay: true,
+        timecard: true
       };
 
       await setDoc(doc(db, 'users', newUser.uid), {
         uid: newUser.uid,
-        email: email.trim().toLowerCase(),
+        email: targetEmail,
         displayName: displayName.trim(),
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
@@ -114,45 +174,6 @@ export default function App() {
     } catch (err: any) {
       console.error(err);
       setAuthError(err.message || 'Registration failed. Try a longer password.');
-    } finally {
-      setAuthLoading(false);
-    }
-  };
-
-  // Helper Preset login for instant user testing
-  const handleFastLogin = async (preEmail: string) => {
-    setAuthError('');
-    setAuthLoading(true);
-    setEmail(preEmail);
-    setPassword('discount123'); // Preset password
-    
-    try {
-      await signInWithEmailAndPassword(auth, preEmail, 'discount111');
-    } catch (err: any) {
-      // If account doesn't exist yet, we auto-create it with standard parameters!
-      try {
-        const userCredential = await createUserWithEmailAndPassword(auth, preEmail, 'discount111');
-        const newUser = userCredential.user;
-        const dispName = preEmail === 'discountelectrician@gmail.com' ? 'Lead Admin (Discount)' : 'Service Operator';
-        
-        await updateProfile(newUser, { displayName: dispName });
-        const isChiefAdmin = preEmail === 'discountelectrician@gmail.com';
-        
-        await setDoc(doc(db, 'users', newUser.uid), {
-          uid: newUser.uid,
-          email: preEmail,
-          displayName: dispName,
-          createdAt: serverTimestamp(),
-          updatedAt: serverTimestamp(),
-          claims: {
-            admin: isChiefAdmin,
-            pay: isChiefAdmin,
-            timecard: isChiefAdmin
-          }
-        });
-      } catch (nestedErr: any) {
-        setAuthError(`Fast access failed: ${nestedErr.message}`);
-      }
     } finally {
       setAuthLoading(false);
     }
@@ -372,38 +393,6 @@ export default function App() {
                     </button>
                   </p>
                 )}
-              </div>
-
-              {/* DEVELOPER TESTING SANDBOX CONTROLS */}
-              <div className="mt-8 pt-6 border-t border-slate-150 bg-slate-50 p-4 rounded-xl border border-slate-205">
-                <div className="flex items-center space-x-1 text-amber-600 font-bold text-[10px] uppercase tracking-wider mb-3">
-                  <Sparkles className="w-3.5 h-3.5" />
-                  <span>Developer Sandbox Access Bypass</span>
-                </div>
-                
-                <p className="text-[11px] text-slate-500 mb-3 leading-relaxed">
-                  For simplified direct login testing (no manual account creation required):
-                </p>
-
-                <div className="grid grid-cols-2 gap-2 text-[11px] font-mono font-semibold">
-                  <button 
-                    onClick={() => handleFastLogin('discountelectrician@gmail.com')}
-                    disabled={authLoading}
-                    className="bg-amber-100 hover:bg-amber-200 text-amber-950 p-2.5 rounded-lg border border-amber-300 text-center transition block leading-tight"
-                  >
-                    <div className="font-bold">Chief Admin</div>
-                    <div className="text-[9px] text-amber-605 font-light">discountelectrician@gmail.com</div>
-                  </button>
-
-                  <button 
-                    onClick={() => handleFastLogin('standard.tech@discountelectrical.com')}
-                    disabled={authLoading}
-                    className="bg-slate-155 hover:bg-slate-200 text-slate-800 p-2.5 rounded-lg border border-slate-300 text-center transition block leading-tight"
-                  >
-                    <div className="font-bold">Standard Tech</div>
-                    <div className="text-[9px] text-slate-500 font-light font-sans truncate">standard.tech@dis...</div>
-                  </button>
-                </div>
               </div>
 
             </div>
