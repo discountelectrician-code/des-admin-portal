@@ -1,0 +1,67 @@
+{
+  "entities": {
+    "user": {
+      "title": "User Profile",
+      "description": "Represents a user in the Discount Electrical Service portal with their custom claims permissions.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "description": "The unique Firebase Auth UID of the user." },
+        "email": { "type": "string", "description": "The email address of the user." },
+        "displayName": { "type": "string", "description": "The display name of the user." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "When the profile was created." },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "When the profile was last updated." },
+        "claims": {
+          "type": "object",
+          "description": "The Custom Claims assigned to the user for modular access.",
+          "properties": {
+            "admin": { "type": "boolean", "description": "Has access to Admin Portal." },
+            "pay": { "type": "boolean", "description": "Has access to Payments module." },
+            "timecard": { "type": "boolean", "description": "Has access to Timecard module." }
+          },
+          "required": ["admin", "pay", "timecard"]
+        },
+        "employeeProfile": {
+          "type": "object",
+          "description": "Optional extended HR onboarding profile data fields.",
+          "properties": {
+            "hireDate": { "type": "string" },
+            "payRate": { "type": "number" },
+            "techLevel": { "type": "string", "enum": ["Apprentice", "Journeyman", "LLE", "Master"] },
+            "homeAddress": { "type": "string" },
+            "cellPhone": { "type": "string" },
+            "driversLicense": { "type": "string" },
+            "photoUrl": { "type": "string" }
+          }
+        }
+      },
+      "required": ["uid", "email", "claims"]
+    },
+    "tracking_event": {
+      "title": "Tracking Event",
+      "description": "Represents a telemetry data log from any of the subdomains.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique event document ID." },
+        "timestamp": { "type": "string", "format": "date-time", "description": "The server timestamp when the event occurred." },
+        "eventType": { "type": "string", "enum": ["auth", "payment", "timecard", "system", "error"], "description": "The type of telemetry event." },
+        "subdomain": { "type": "string", "enum": ["admin", "pay", "timecard"], "description": "The subdomain application releasing this event." },
+        "userId": { "type": "string", "description": "UID of the user associated with this event." },
+        "userEmail": { "type": "string", "description": "Email of the user associated with this event." },
+        "message": { "type": "string", "description": "A descriptive message detailing the telemetry event." },
+        "status": { "type": "string", "enum": ["info", "success", "warning", "error"], "description": "Log severity/status." },
+        "details": { "type": "string", "description": "Additional JSON metadata or details as string." }
+      },
+      "required": ["id", "timestamp", "eventType", "subdomain", "userId", "userEmail", "message", "status"]
+    }
+  },
+  "firestore": {
+    "users/{userId}": {
+      "schema": "user",
+      "description": "Stores user profiles and their assigned claims/modules permissions."
+    },
+    "tracking_events/{eventId}": {
+      "schema": "tracking_event",
+      "description": "Secure collection storing telemetry tracking events from all subdomains in the Discount Electrical ecosystem."
+    }
+  }
+}

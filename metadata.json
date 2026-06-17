@@ -1,0 +1,6 @@
+{
+  "name": "Discount Electrical Admin Portal",
+  "description": "Central Identity, Permissions, and Telemetry Dashboard for Discount Electrical Service subdomains.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

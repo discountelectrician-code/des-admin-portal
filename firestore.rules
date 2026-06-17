@@ -1,0 +1,120 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // 1. Default Catch-All Deny Block
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // 2. Core Security Helpers and Claim Primitives
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isEmailVerified() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    // Bootstrapped Administrator Check leveraging runtime configuration
+    function isBootstrappedAdmin() {
+      return isSignedIn() && request.auth.token.email == 'discountelectrician@gmail.com';
+    }
+
+    function isAdmin() {
+      return isBootstrappedAdmin() || (isSignedIn() && request.auth.token.admin == true);
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // 3. Custom-Claim Validation Profiles (Blueprint Representation)
+    function isValidUser(data) {
+      return data.keys().hasAll(['uid', 'email', 'displayName', 'createdAt', 'updatedAt', 'claims'])
+        && (data.keys().size() == 6 || (data.keys().size() == 7 && data.keys().hasAll(['employeeProfile'])))
+        && data.uid is string
+        && data.email is string
+        && data.email.size() <= 200
+        && data.displayName is string
+        && data.displayName.size() <= 100
+        && data.claims is map
+        && data.claims.keys().hasAll(['admin', 'pay', 'timecard'])
+        && data.claims.keys().size() == 3
+        && data.claims.admin is bool
+        && data.claims.pay is bool
+        && data.claims.timecard is bool;
+    }
+
+    function isValidTrackingEvent(data) {
+      return data.keys().hasAll(['id', 'timestamp', 'eventType', 'subdomain', 'userId', 'userEmail', 'message', 'status', 'details'])
+        && data.keys().size() == 9
+        && data.id is string
+        && data.id.size() <= 128
+        && data.userId == request.auth.uid
+        && data.userEmail == request.auth.token.email
+        && data.eventType is string
+        && data.eventType in ['auth', 'payment', 'timecard', 'system', 'error']
+        && data.subdomain is string
+        && data.subdomain in ['admin', 'pay', 'timecard']
+        && data.status is string
+        && data.status in ['info', 'success', 'warning', 'error']
+        && data.message is string
+        && data.message.size() <= 500
+        && data.details is string
+        && data.details.size() <= 2000;
+    }
+
+    // 4. Entity Access Path Matching
+    
+    // User Permissions & Custom Claims Sync collection
+    match /users/{userId} {
+      allow read: if isAdmin() || isOwner(userId);
+      
+      // Allow creation by either Owner (for self-signup) OR Admin (for onboarding)
+      allow create: if isSignedIn() && isValidId(userId) && (isOwner(userId) || isAdmin()) && isValidUser(incoming()) && (
+        isAdmin() || (incoming().claims.admin == false && incoming().claims.pay == false && incoming().claims.timecard == false)
+      ) && incoming().createdAt == request.time && incoming().updatedAt == request.time;
+
+      // Allow updates by either Owner or Admin
+      allow update: if isSignedIn() && isValidId(userId) && (isOwner(userId) || isAdmin()) && isValidUser(incoming()) && (
+        isAdmin() || (
+          incoming().claims.admin == existing().claims.admin && 
+          incoming().claims.pay == existing().claims.pay && 
+          incoming().claims.timecard == existing().claims.timecard
+        )
+      ) && incoming().createdAt == existing().createdAt && incoming().updatedAt == request.time;
+      
+      allow delete: if isAdmin();
+    }
+
+    // Central Security-Hardened Telemetry collection
+    match /tracking_events/{eventId} {
+      // Telemetry telemetry displays are reserved for Administrator accounts
+      allow read: if isAdmin();
+
+      // Custom-claims based write routing:
+      // If logging for a specific subdomain app, you must possess the matching permission claim
+      allow create: if isSignedIn() && isValidId(eventId) && isValidTrackingEvent(incoming()) && (
+        isAdmin() || 
+        (incoming().subdomain == 'pay' && request.auth.token.pay == true) || 
+        (incoming().subdomain == 'timecard' && request.auth.token.timecard == true)
+      ) && incoming().timestamp == request.time;
+
+      // Telemetry logs are strictly append-only; update/delete operations are forbidden
+      allow update, delete: if false;
+    }
+  }
+}
