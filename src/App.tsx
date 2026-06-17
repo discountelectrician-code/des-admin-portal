@@ -34,11 +34,12 @@ import Navbar from './components/Navbar';
 import TelemetryDashboard from './components/TelemetryDashboard';
 import PermissionsManager from './components/PermissionsManager';
 import PaymentSettings from './components/PaymentSettings';
+import HistoricalSync from './components/HistoricalSync';
 
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'telemetry' | 'permissions' | 'payment'>('telemetry');
+  const [activeTab, setActiveTab] = useState<'telemetry' | 'permissions' | 'payment' | 'historical_sync'>('telemetry');
   
   // Auth Form State
   const [isRegistering, setIsRegistering] = useState(false);
@@ -209,7 +210,7 @@ export default function App() {
           )}
 
           {/* Quick tab cards for Mobile/Desktop fallback */}
-          <div className="flex md:hidden bg-white p-1 rounded-xl border border-slate-200 shadow-sm max-w-sm mx-auto text-xs font-bold">
+          <div className="flex md:hidden bg-white p-1 rounded-xl border border-slate-200 shadow-sm max-w-[440px] mx-auto text-[10px] font-bold">
             <button 
               onClick={() => setActiveTab('telemetry')}
               className={`flex-1 py-1.5 rounded-lg text-center ${activeTab === 'telemetry' ? 'bg-slate-900 text-white shadow-sm' : 'text-slate-500'}`}
@@ -228,6 +229,12 @@ export default function App() {
             >
               Payment
             </button>
+            <button 
+              onClick={() => setActiveTab('historical_sync')}
+              className={`flex-1 py-1.5 rounded-lg text-center ${activeTab === 'historical_sync' ? 'bg-slate-900 text-white shadow-sm' : 'text-slate-500'}`}
+            >
+              Sync
+            </button>
           </div>
 
           {/* Render Core Component tab */}
@@ -235,8 +242,10 @@ export default function App() {
             <TelemetryDashboard />
           ) : activeTab === 'permissions' ? (
             <PermissionsManager />
-          ) : (
+          ) : activeTab === 'payment' ? (
             <PaymentSettings />
+          ) : (
+            <HistoricalSync />
           )}
 
         </main>
