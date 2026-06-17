@@ -81,13 +81,20 @@ export default function Navbar({ activeTab, setActiveTab, currentUser }: NavbarP
         <div className="flex justify-between items-center h-16">
           
           {/* Logo Brand */}
-          <div className="flex items-center space-x-3">
-            <div className="bg-amber-500 text-slate-900 p-2 rounded-lg font-bold flex items-center justify-center shadow-inner">
-              <Zap className="w-5 h-5 fill-slate-900" />
-            </div>
-            <div>
-              <h1 className="text-sm font-bold tracking-tight text-white font-sans sm:text-base">Discount Electrical Service</h1>
-              <p className="text-[10px] text-amber-400 font-mono tracking-widest uppercase leading-none">Shared Identity Portal</p>
+          <div className="flex items-center space-x-3 select-none">
+            <img 
+              src="/discount-electrical-service-logo.png" 
+              alt="Discount Electrical Service Logo" 
+              className="h-8 w-8 object-contain shrink-0 transition-transform duration-300 hover:scale-105" 
+              referrerPolicy="no-referrer"
+            />
+            <div className="flex flex-col justify-center">
+              <h1 className="text-sm sm:text-base font-extrabold tracking-tight text-white font-sans leading-tight">
+                Discount Electrical Service
+              </h1>
+              <span className="text-[9px] font-mono font-bold uppercase tracking-widest text-cyan-400 leading-none">
+                Admin Portal
+              </span>
             </div>
           </div>
 

@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { doc, updateDoc, serverTimestamp, setDoc } from 'firebase/firestore';
+import { doc, updateDoc, serverTimestamp, setDoc, deleteDoc } from 'firebase/firestore';
 import { db, auth as primaryAuth } from '../firebase';
 import { UserProfile, EmployeeProfile, UserClaims } from '../types';
 import { 
@@ -22,7 +22,8 @@ import {
   AlertCircle, 
   UserCheck, 
   UserX,
-  Shield
+  Shield,
+  Trash2
 } from 'lucide-react';
 
 interface EditEmployeeModalProps {
@@ -53,6 +54,7 @@ export default function EditEmployeeModal({ isOpen, onClose, onSuccess, user }: 
   });
 
   const [isSaving, setIsSaving] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   // Pre-populate fields when selected user changes
@@ -188,6 +190,52 @@ export default function EditEmployeeModal({ isOpen, onClose, onSuccess, user }: 
       setErrorMsg(err.message || 'An unexpected error occurred during database commit.');
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!user) return;
+    
+    const confirmed = window.confirm('Are you sure? This action cannot be undone.');
+    if (!confirmed) return;
+
+    setIsDeleting(true);
+    setErrorMsg(null);
+
+    try {
+      const userRef = doc(db, 'users', user.uid);
+      await deleteDoc(userRef);
+
+      // Dispatch Telemetry events to sync log trails
+      try {
+        const eventId = "log_delete_" + Date.now();
+        await setDoc(doc(db, 'tracking_events', eventId), {
+          id: eventId,
+          timestamp: serverTimestamp(),
+          eventType: 'auth',
+          subdomain: 'admin',
+          userId: primaryAuth.currentUser?.uid || 'system_onboard',
+          userEmail: primaryAuth.currentUser?.email || 'admin@discountelectrical.com',
+          message: `Deleted Employee profile: ${fullName.trim()} (${user.email})`,
+          status: 'warning',
+          details: JSON.stringify({
+            targetUid: user.uid,
+            displayName: fullName.trim(),
+            email: user.email
+          })
+        });
+      } catch (logErr) {
+        console.warn("Could not log profile delete activity:", logErr);
+      }
+
+      alert(`Successfully deleted employee: ${fullName}`);
+      onSuccess();
+      onClose();
+    } catch (err: any) {
+      console.error("Error deleting employee:", err);
+      setErrorMsg(err.message || 'An unexpected error occurred during database deletion.');
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -486,23 +534,44 @@ export default function EditEmployeeModal({ isOpen, onClose, onSuccess, user }: 
                 <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" />
                 Committing to database...
               </span>
+            ) : isDeleting ? (
+              <span className="flex items-center text-red-600 animate-pulse font-semibold">
+                <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" />
+                Removing employee records...
+              </span>
             ) : (
               <span>Fields marked with <span className="text-red-500 font-sans">*</span> are required.</span>
             )}
           </div>
 
-          <div className="flex items-center space-x-3 w-full sm:w-auto">
+          <div className="flex flex-wrap items-center gap-3 w-full sm:w-auto justify-end">
+            <button 
+              type="button" 
+              onClick={handleDelete}
+              disabled={isSaving || isDeleting}
+              className="flex-1 sm:flex-none px-5 py-3 h-12 min-h-[48px] text-[11px] sm:text-xs font-bold text-red-650 text-red-600 hover:text-red-700 hover:bg-red-50 bg-white border border-red-200 hover:border-red-300 rounded-xl transition disabled:opacity-50 select-none cursor-pointer flex items-center justify-center gap-1.5 shadow-sm"
+            >
+              {isDeleting ? (
+                <Loader2 className="w-4 h-4 animate-spin text-red-500" />
+              ) : (
+                <Trash2 className="w-4 h-4 text-red-500" />
+              )}
+              <span>Delete Employee</span>
+            </button>
+
+            <div className="hidden sm:block h-6 w-px bg-slate-200" />
+
             <button 
               type="button" 
               onClick={onClose}
-              disabled={isSaving}
+              disabled={isSaving || isDeleting}
               className="flex-1 sm:flex-none px-5 py-3 h-12 min-h-[48px] text-xs font-bold text-slate-600 hover:text-slate-800 hover:bg-slate-100 rounded-xl transition disabled:opacity-50 select-none cursor-pointer border border-slate-200 flex items-center justify-center"
             >
               Cancel
             </button>
             <button 
               type="submit"
-              disabled={isSaving}
+              disabled={isSaving || isDeleting}
               className="flex-1 sm:flex-none px-6 py-3 h-12 min-h-[48px] text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl transition shadow-md hover:shadow flex items-center justify-center disabled:opacity-50 select-none cursor-pointer"
             >
               {isSaving ? (
