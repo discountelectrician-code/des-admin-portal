@@ -79,11 +79,13 @@ service cloud.firestore {
 
     function isValidPaymentConfig(data) {
       return data.keys().hasAll(['provider', 'updatedBy', 'updatedAt'])
-        && data.keys().size() == 3
         && data.provider is string
         && data.provider in ['stripe', 'square']
         && data.updatedBy is string
-        && data.updatedAt == request.time;
+        && data.updatedAt == request.time
+        && (!('stripeSecretKey' in data) || data.stripeSecretKey is string)
+        && (!('squareAppId' in data) || data.squareAppId is string)
+        && (!('squareAccessToken' in data) || data.squareAccessToken is string);
     }
 
     // 4. Entity Access Path Matching
@@ -128,8 +130,8 @@ service cloud.firestore {
 
     // Central Settings collection for system-wide configurations
     match /settings/{settingId} {
-      // Settings are readable by any authenticated personnel in the Discount Electrical workspace
-      allow read: if isSignedIn();
+      // Settings containing sensitive API secret tokens are strictly readable only by Administrator accounts
+      allow read: if isAdmin();
 
       // Settings updates are strictly preserved for Administrator accounts
       allow write: if isAdmin() && isValidId(settingId) && settingId == 'payment_config' && isValidPaymentConfig(incoming());

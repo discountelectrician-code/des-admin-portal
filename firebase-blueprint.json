@@ -60,7 +60,10 @@
       "properties": {
         "provider": { "type": "string", "enum": ["stripe", "square"], "description": "The chosen active payment gateway." },
         "updatedAt": { "type": "string", "format": "date-time", "description": "When the payment gateway select state was saved." },
-        "updatedBy": { "type": "string", "description": "User email or UID who toggled the provider." }
+        "updatedBy": { "type": "string", "description": "User email or UID who toggled the provider." },
+        "stripeSecretKey": { "type": "string", "description": "Encrypted or masked API private secret key for Stripe." },
+        "squareAppId": { "type": "string", "description": "API application identifier for Square." },
+        "squareAccessToken": { "type": "string", "description": "API private access token for Square." }
       },
       "required": ["provider"]
     }

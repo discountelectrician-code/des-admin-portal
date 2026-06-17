@@ -51,6 +51,14 @@ export default function PaymentSettings() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
 
+  const [stripeSecretKey, setStripeSecretKey] = useState('');
+  const [squareAppId, setSquareAppId] = useState('');
+  const [squareAccessToken, setSquareAccessToken] = useState('');
+
+  const [hasStripeSecretKey, setHasStripeSecretKey] = useState(false);
+  const [hasSquareAppId, setHasSquareAppId] = useState(false);
+  const [hasSquareAccessToken, setHasSquareAccessToken] = useState(false);
+
   // Firestore error handler following standard integration guidelines
   function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
     const errInfo: FirestoreErrorInfo = {
@@ -113,6 +121,9 @@ export default function PaymentSettings() {
             setProvider(data.provider);
             setDbProvider(data.provider);
           }
+          setHasStripeSecretKey(!!data.stripeSecretKey);
+          setHasSquareAppId(!!data.squareAppId);
+          setHasSquareAccessToken(!!data.squareAccessToken);
         }
       } catch (err) {
         // Log in compliant error details format but do not crash the view for unauthorized readers
@@ -141,13 +152,35 @@ export default function PaymentSettings() {
     const docPath = 'settings/payment_config';
     try {
       const configDocRef = doc(db, 'settings', 'payment_config');
-      await setDoc(configDocRef, {
+      
+      const payload: any = {
         provider: provider,
         updatedAt: serverTimestamp(),
         updatedBy: currentUser.email || currentUser.uid
-      });
+      };
+
+      if (stripeSecretKey.trim()) {
+        payload.stripeSecretKey = stripeSecretKey.trim();
+      }
+      if (squareAppId.trim()) {
+        payload.squareAppId = squareAppId.trim();
+      }
+      if (squareAccessToken.trim()) {
+        payload.squareAccessToken = squareAccessToken.trim();
+      }
+
+      await setDoc(configDocRef, payload, { merge: true });
 
       setDbProvider(provider);
+      if (stripeSecretKey.trim()) setHasStripeSecretKey(true);
+      if (squareAppId.trim()) setHasSquareAppId(true);
+      if (squareAccessToken.trim()) setHasSquareAccessToken(true);
+
+      // Clear fields after saving to prevent re-display
+      setStripeSecretKey('');
+      setSquareAppId('');
+      setSquareAccessToken('');
+
       setSuccess(true);
       
       // Auto-hide success badge after 4 seconds
@@ -259,62 +292,140 @@ export default function PaymentSettings() {
             </div>
           )}
 
-          {/* Selective Option Radios */}
-          <div className="space-y-4">
-            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block font-mono">Select Payment Provider</span>
-            
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {/* STRIPE OPTION */}
-              <div 
-                onClick={() => setProvider('stripe')}
-                className={`border rounded-2xl p-5 cursor-pointer flex flex-col justify-between transition-all select-none h-44 ${
-                  provider === 'stripe' 
-                    ? 'border-indigo-600 bg-indigo-50/10 shadow-sm ring-1 ring-indigo-600' 
-                    : 'border-slate-200 hover:border-slate-350 bg-white'
-                }`}
+          {/* Selective Dropdown or Radio Toggle */}
+          <div className="space-y-6">
+            <div>
+              <label htmlFor="active-provider-select" className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block font-mono mb-2">
+                Active Payment Provider (Toggle)
+              </label>
+              <select
+                id="active-provider-select"
+                value={provider}
+                onChange={(e) => setProvider(e.target.value as 'stripe' | 'square')}
+                className="w-full max-w-xs bg-slate-50 border border-slate-300 text-slate-800 text-sm rounded-lg p-2.5 font-medium focus:ring-indigo-500 focus:border-indigo-500"
               >
-                <div className="flex justify-between items-start">
-                  <div className="bg-slate-900 text-white p-2.5 rounded-xl font-bold tracking-tight text-xs">
-                    stripe
+                <option value="stripe">Stripe Payments</option>
+                <option value="square">Square Commerce</option>
+              </select>
+            </div>
+
+            <div className="space-y-4">
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block font-mono">Select Payment Provider (Visual Cards)</span>
+              
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {/* STRIPE OPTION */}
+                <div 
+                  onClick={() => setProvider('stripe')}
+                  className={`border rounded-2xl p-5 cursor-pointer flex flex-col justify-between transition-all select-none h-44 ${
+                    provider === 'stripe' 
+                      ? 'border-indigo-600 bg-indigo-50/10 shadow-sm ring-1 ring-indigo-600' 
+                      : 'border-slate-200 hover:border-slate-350 bg-white'
+                  }`}
+                >
+                  <div className="flex justify-between items-start">
+                    <div className="bg-slate-900 text-white p-2.5 rounded-xl font-bold tracking-tight text-xs">
+                      stripe
+                    </div>
+                    <div className={`w-5 h-5 rounded-full border flex items-center justify-center transition-all ${
+                      provider === 'stripe' ? 'border-indigo-600 bg-indigo-600' : 'border-slate-300'
+                    }`}>
+                      {provider === 'stripe' && <div className="w-2 h-2 rounded-full bg-white"></div>}
+                    </div>
                   </div>
-                  <div className={`w-5 h-5 rounded-full border flex items-center justify-center transition-all ${
-                    provider === 'stripe' ? 'border-indigo-600 bg-indigo-600' : 'border-slate-300'
-                  }`}>
-                    {provider === 'stripe' && <div className="w-2 h-2 rounded-full bg-white"></div>}
+                  <div className="space-y-1">
+                    <span className="font-bold text-slate-800 text-sm block">Stripe Gateway API</span>
+                    <p className="text-[11px] text-slate-500 leading-normal font-sans">
+                      Enable standard direct card checkouts, digital wallets (Apple/Google Pay), and international secure bank payments.
+                    </p>
                   </div>
                 </div>
-                <div className="space-y-1">
-                  <span className="font-bold text-slate-800 text-sm block">Stripe Gateway API</span>
-                  <p className="text-[11px] text-slate-500 leading-normal font-sans">
-                    Enable standard direct card checkouts, digital wallets (Apple/Google Pay), and international secure bank payments.
-                  </p>
+
+                {/* SQUARE OPTION */}
+                <div 
+                  onClick={() => setProvider('square')}
+                  className={`border rounded-2xl p-5 cursor-pointer flex flex-col justify-between transition-all select-none h-44 ${
+                    provider === 'square' 
+                      ? 'border-indigo-600 bg-indigo-50/10 shadow-sm ring-1 ring-indigo-600' 
+                      : 'border-slate-200 hover:border-slate-350 bg-white'
+                  }`}
+                >
+                  <div className="flex justify-between items-start">
+                    <div className="bg-slate-900 text-white p-2.5 rounded-xl font-bold tracking-tight text-xs">
+                      square
+                    </div>
+                    <div className={`w-5 h-5 rounded-full border flex items-center justify-center transition-all ${
+                      provider === 'square' ? 'border-indigo-600 bg-indigo-600' : 'border-slate-300'
+                    }`}>
+                      {provider === 'square' && <div className="w-2 h-2 rounded-full bg-white"></div>}
+                    </div>
+                  </div>
+                  <div className="space-y-1">
+                    <span className="font-bold text-slate-800 text-sm block">Square Commerce API</span>
+                    <p className="text-[11px] text-slate-500 leading-normal font-sans">
+                      Integrate in-person Reader terminals, invoice billing syncs, and simple field service transaction workflows natively.
+                    </p>
+                  </div>
                 </div>
               </div>
+            </div>
 
-              {/* SQUARE OPTION */}
-              <div 
-                onClick={() => setProvider('square')}
-                className={`border rounded-2xl p-5 cursor-pointer flex flex-col justify-between transition-all select-none h-44 ${
-                  provider === 'square' 
-                    ? 'border-indigo-600 bg-indigo-50/10 shadow-sm ring-1 ring-indigo-600' 
-                    : 'border-slate-200 hover:border-slate-350 bg-white'
-                }`}
-              >
-                <div className="flex justify-between items-start">
-                  <div className="bg-slate-900 text-white p-2.5 rounded-xl font-bold tracking-tight text-xs">
-                    square
-                  </div>
-                  <div className={`w-5 h-5 rounded-full border flex items-center justify-center transition-all ${
-                    provider === 'square' ? 'border-indigo-600 bg-indigo-600' : 'border-slate-300'
-                  }`}>
-                    {provider === 'square' && <div className="w-2 h-2 rounded-full bg-white"></div>}
-                  </div>
+            {/* SECURE API CREDENTIALS FORM */}
+            <div className="mt-8 pt-6 border-t border-slate-100 space-y-4">
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block font-mono mb-2">Secure API Credentials (Masked Inputs)</span>
+              
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* Stripe Key */}
+                <div className="space-y-1.5 md:col-span-2">
+                  <label className="block text-xs font-bold text-slate-700 flex items-center justify-between">
+                    <span>Stripe Secret Key</span>
+                    {hasStripeSecretKey && (
+                      <span className="text-[10px] font-semibold text-emerald-600 font-sans">✓ Configured in Firestore</span>
+                    )}
+                  </label>
+                  <input
+                    type="password"
+                    value={stripeSecretKey}
+                    onChange={(e) => setStripeSecretKey(e.target.value)}
+                    placeholder={hasStripeSecretKey ? "•••••••• (Saved. Type key to overwrite)" : "sk_live_..."}
+                    className="w-full bg-slate-50 border border-slate-200 text-slate-800 text-sm rounded-lg p-2.5 font-mono focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
+                    disabled={!isAdmin}
+                  />
                 </div>
-                <div className="space-y-1">
-                  <span className="font-bold text-slate-800 text-sm block">Square Commerce API</span>
-                  <p className="text-[11px] text-slate-500 leading-normal font-sans">
-                    Integrate in-person Reader terminals, invoice billing syncs, and simple field service transaction workflows natively.
-                  </p>
+
+                {/* Square App ID */}
+                <div className="space-y-1.5">
+                  <label className="block text-xs font-bold text-slate-700 flex items-center justify-between">
+                    <span>Square Application ID</span>
+                    {hasSquareAppId && (
+                      <span className="text-[10px] font-semibold text-emerald-600 font-sans">✓ Configured</span>
+                    )}
+                  </label>
+                  <input
+                    type="password"
+                    value={squareAppId}
+                    onChange={(e) => setSquareAppId(e.target.value)}
+                    placeholder={hasSquareAppId ? "•••••••• (Saved. Type ID to overwrite)" : "sq-app-id-..."}
+                    className="w-full bg-slate-50 border border-slate-200 text-slate-800 text-sm rounded-lg p-2.5 font-mono focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
+                    disabled={!isAdmin}
+                  />
+                </div>
+
+                {/* Square Access Token */}
+                <div className="space-y-1.5">
+                  <label className="block text-xs font-bold text-slate-700 flex items-center justify-between">
+                    <span>Square Access Token</span>
+                    {hasSquareAccessToken && (
+                      <span className="text-[10px] font-semibold text-emerald-600 font-sans">✓ Configured</span>
+                    )}
+                  </label>
+                  <input
+                    type="password"
+                    value={squareAccessToken}
+                    onChange={(e) => setSquareAccessToken(e.target.value)}
+                    placeholder={hasSquareAccessToken ? "•••••••• (Saved. Type token to overwrite)" : "EAAA..."}
+                    className="w-full bg-slate-50 border border-slate-200 text-slate-800 text-sm rounded-lg p-2.5 font-mono focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
+                    disabled={!isAdmin}
+                  />
                 </div>
               </div>
             </div>
