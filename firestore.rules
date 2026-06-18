@@ -21,8 +21,21 @@ service cloud.firestore {
       return isSignedIn() && request.auth.token.email == 'discountelectrician@gmail.com';
     }
 
+    // New: Helper to safely fetch claims map from the user's document in Firestore
+    function getUserDocument() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+
+    function hasUserDoc() {
+      return exists(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+
     function isAdmin() {
-      return isBootstrappedAdmin() || (isSignedIn() && request.auth.token.admin == true);
+      return isBootstrappedAdmin() || (
+        isSignedIn() && 
+        hasUserDoc() && 
+        getUserDocument().data.claims.admin == true
+      );
     }
 
     function isOwner(userId) {
@@ -120,8 +133,8 @@ service cloud.firestore {
       // If logging for a specific subdomain app, you must possess the matching permission claim
       allow create: if isSignedIn() && isValidId(eventId) && isValidTrackingEvent(incoming()) && (
         isAdmin() || 
-        (incoming().subdomain == 'pay' && request.auth.token.pay == true) || 
-        (incoming().subdomain == 'timecard' && request.auth.token.timecard == true)
+        (incoming().subdomain == 'pay' && hasUserDoc() && getUserDocument().data.claims.pay == true) || 
+        (incoming().subdomain == 'timecard' && hasUserDoc() && getUserDocument().data.claims.timecard == true)
       ) && incoming().timestamp == request.time;
 
       // Telemetry logs are strictly append-only; update/delete operations are forbidden

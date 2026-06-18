@@ -29,6 +29,7 @@ import {
   LockKeyhole, 
   UserPlus, 
   LogIn, 
+  LogOut,
   Sparkles,
   RefreshCw,
   LayoutDashboard,
@@ -58,6 +59,20 @@ export default function App() {
   });
   const [profileName, setProfileName] = useState('New Service Agent');
 
+  // Detect subdomain Category automatically from hostname
+  const [hostDomain, setHostDomain] = useState<'admin' | 'pay' | 'timecard'>('admin');
+
+  useEffect(() => {
+    const hostname = window.location.hostname.toLowerCase();
+    if (hostname.startsWith('pay.') || hostname.includes('.pay.') || hostname.includes('pay-') || hostname.includes('pay.')) {
+      setHostDomain('pay');
+    } else if (hostname.startsWith('timecard.') || hostname.includes('.timecard.') || hostname.includes('timecard-') || hostname.includes('timecard.')) {
+      setHostDomain('timecard');
+    } else {
+      setHostDomain('admin');
+    }
+  }, []);
+
   // Interactive simulation overlays state
   const [activeSimulation, setActiveSimulation] = useState<'pay' | 'timecard' | null>(null);
   const [clockedIn, setClockedIn] = useState(false);
@@ -72,6 +87,58 @@ export default function App() {
   const [displayName, setDisplayName] = useState('');
   const [authError, setAuthError] = useState('');
   const [authLoading, setAuthLoading] = useState(false);
+
+  // Standalone Payroll Inquiry and Clock-In statuses
+  const [inquiryAmount, setInquiryAmount] = useState('');
+  const [inquiryMsg, setInquiryMsg] = useState('');
+  const [inquiryStatus, setInquiryStatus] = useState<string | null>(null);
+
+  const handlePayInquirySubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!user) return;
+    try {
+      setInquiryStatus('Submitting secure transaction request...');
+      const eventId = "pay_inq_" + Date.now();
+      await setDoc(doc(db, 'tracking_events', eventId), {
+        id: eventId,
+        timestamp: serverTimestamp(),
+        eventType: 'payment',
+        subdomain: 'pay',
+        userId: user.uid,
+        userEmail: user.email || '',
+        message: `Wages / Payroll sync demand: $${inquiryAmount} - ${inquiryMsg || 'Regular pay period demand.'}`,
+        status: 'success',
+        details: JSON.stringify({ amount: inquiryAmount, notes: inquiryMsg })
+      });
+      setInquiryStatus('Success! Wage request registered securely in Firestore and sync telemetry logged.');
+      setInquiryAmount('');
+      setInquiryMsg('');
+    } catch (err: any) {
+      console.error(err);
+      setInquiryStatus(`Submission failed: ${err.message || 'Verification Error.'}`);
+    }
+  };
+
+  const handleTimecardClockSubmit = async (statusEvent: 'clock_in' | 'clock_out') => {
+    if (!user) return;
+    try {
+      const eventId = "tc_" + statusEvent + "_" + Date.now();
+      await setDoc(doc(db, 'tracking_events', eventId), {
+        id: eventId,
+        timestamp: serverTimestamp(),
+        eventType: 'timecard',
+        subdomain: 'timecard',
+        userId: user.uid,
+        userEmail: user.email || '',
+        message: `Technician shift status event: ${statusEvent === 'clock_in' ? 'CLOCKED IN SHIFT' : 'CLOCKED OUT SHIFT'}`,
+        status: 'info',
+        details: JSON.stringify({ device: 'web_portal', timestamp: new Date().toISOString() })
+      });
+      console.log("Timecard event logged to Firestore successfully!");
+    } catch (err: any) {
+      console.error("Error logging timecard event:", err);
+    }
+  };
 
   // Clock-in timer effect
   useEffect(() => {
@@ -336,24 +403,22 @@ export default function App() {
               <div className="mx-auto w-12 h-12 bg-slate-900 text-amber-400 flex items-center justify-center rounded-2xl shadow-lg border border-slate-800">
                 <LockKeyhole className="w-6 h-6" />
               </div>
-              <h2 className="text-xl font-extrabold tracking-tight text-slate-900">Discount Electrical</h2>
-              <p className="text-xs text-slate-500 font-mono font-bold uppercase tracking-widest">
-                Central Administrative Gate
+              <h2 className="text-xl font-extrabold tracking-tight text-slate-900">
+                {hostDomain === 'pay' 
+                  ? 'Discount Electrical - Pay Portal' 
+                  : hostDomain === 'timecard' 
+                    ? 'Discount Electrical - Timesheet' 
+                    : 'Discount Electrical'}
+              </h2>
+              <p className="text-xs text-slate-550 font-mono font-bold uppercase tracking-widest text-[#4F46E5] bg-indigo-50/80 px-2 py-1 rounded-md inline-block">
+                {hostDomain === 'pay' 
+                  ? 'Secure Employee Payroll Gate' 
+                  : hostDomain === 'timecard' 
+                    ? 'Technician Clock-In Registry' 
+                    : 'Central Administrative Gate'}
               </p>
             </div>
 
-            {/* Configured Admin Credentials Notice */}
-            <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl text-[11px] text-slate-600 leading-relaxed space-y-1">
-              <div className="font-bold text-slate-800 flex items-center gap-1 font-mono text-[10px] uppercase">
-                <Sparkles className="w-3.5 h-3.5 text-amber-500 shrink-0" />
-                Master Admin Portal Credentials
-              </div>
-              <div><span className="font-bold">Email:</span> discountelectrician@gmail.com</div>
-              <div><span className="font-bold">Key Passcode:</span> Funfun11#</div>
-              <p className="text-[10px] text-slate-400 pt-1 border-t mt-1 leading-snug">
-                Enter these credentials below to log in as the chief administrator with full central authorization claims.
-              </p>
-            </div>
 
             {/* Error alerts */}
             {authError && (
@@ -475,8 +540,292 @@ export default function App() {
 
           </div>
         </main>
+      ) : hostDomain === 'pay' ? (
+        /* STANDALONE PAYROLL SUBDOMAIN APPLICATION */
+        !userClaims.pay && !userClaims.admin ? (
+          <main className="flex-1 max-w-md w-full mx-auto px-4 py-16 flex flex-col justify-center">
+            <div className="bg-white border border-slate-200 rounded-3xl p-8 shadow-xl text-center space-y-6">
+              <div className="mx-auto w-16 h-16 bg-rose-50 text-rose-600 flex items-center justify-center rounded-2xl border border-rose-100">
+                <ShieldAlert className="w-8 h-8 text-rose-500" />
+              </div>
+              <div className="space-y-2">
+                <h2 className="text-xl font-bold text-slate-900 tracking-tight">Authorization Required</h2>
+                <p className="text-xs text-slate-500 leading-relaxed">
+                  You are securely signed in as <strong className="font-semibold text-slate-800">{user.email}</strong>, but your profile lacks the active <span className="font-mono bg-slate-100 px-1.5 py-0.5 rounded font-bold text-slate-700">pay</span> permission claim.
+                </p>
+                <p className="text-xs text-slate-400">
+                  Please contact the chief administrator to toggle your payroll permission attributes in the Central Identity Manager.
+                </p>
+              </div>
+              <div className="pt-2 flex flex-col gap-2">
+                <button
+                  onClick={() => auth.signOut()}
+                  className="w-full py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer animate-none"
+                >
+                  <LogIn className="w-4 h-4" />
+                  <span>Sign In With Another Account</span>
+                </button>
+              </div>
+            </div>
+          </main>
+        ) : (
+          <main className="flex-1 max-w-4xl w-full mx-auto px-4 py-8 space-y-6 font-sans">
+            {/* Header Card */}
+            <div className="bg-slate-900 text-white p-6 rounded-2xl shadow-xl border border-slate-800 space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-mono font-bold tracking-widest text-[#0284C7] bg-[#E0F2FE]/10 border border-[#0284C7]/20 px-2.5 py-1 rounded-sm uppercase">
+                  pay.discountelectricalservice.com
+                </span>
+                <span className="text-[10px] bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 font-mono px-2 py-0.5 rounded animate-pulse">
+                  SECURE CHANNEL ACTIVE
+                </span>
+              </div>
+              <div className="space-y-1">
+                <h2 className="text-xl font-extrabold text-white tracking-tight">Worker Payroll Registry Terminal</h2>
+                <p className="text-xs text-slate-400">
+                  Authorized Session: <span className="text-slate-100 font-semibold">{profileName}</span> ({user.email})
+                </p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <div className="md:col-span-2 space-y-6">
+                {/* Wage and Period Details */}
+                <div className="bg-white border border-slate-200 p-6 rounded-2xl shadow-xs space-y-4">
+                  <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2">
+                    <CreditCard className="w-4 h-4 text-[#0284C7]" />
+                    Your Compensation Profile
+                  </h3>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="p-4 bg-slate-50 border border-slate-150 rounded-xl space-y-1">
+                      <div className="text-[10px] text-slate-400 font-mono font-bold uppercase tracking-wider">Hourly Wages Rate</div>
+                      <div className="text-3xl font-extrabold text-[#0284C7] font-mono">$48.50 <span className="text-xs font-normal text-slate-400">/ hr</span></div>
+                    </div>
+                    <div className="p-4 bg-slate-50 border border-slate-150 rounded-xl space-y-1">
+                      <div className="text-[10px] text-slate-400 font-mono font-bold uppercase tracking-wider">Payroll Disbursal Schedule</div>
+                      <div className="text-xs font-extrabold text-slate-700 pt-2">Weekly - Wednesdays Net 7</div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Secure Wage Sync Request Form */}
+                <div className="bg-white border border-slate-200 p-6 rounded-2xl shadow-sm space-y-4">
+                  <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2">
+                    <Sparkles className="w-4 h-4 text-amber-500" />
+                    Wages Reconciliation Log
+                  </h3>
+                  <p className="text-xs text-slate-500 leading-relaxed font-sans">
+                    Submit manual pay synchronizations or register claims inquiries directly into the Firestore database telemetry stream.
+                  </p>
+                  <form onSubmit={handlePayInquirySubmit} className="space-y-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div className="space-y-1">
+                        <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest font-mono">Inquiry Wage Sum ($)</label>
+                        <input 
+                          type="number"
+                          placeholder="e.g. 194.00"
+                          value={inquiryAmount}
+                          onChange={(e) => setInquiryAmount(e.target.value)}
+                          className="w-full text-xs py-2.5 px-4 rounded-xl border bg-slate-50 border-slate-200 outline-none focus:border-[#0284C7] transition font-sans"
+                          required
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest font-mono">Reference Details</label>
+                        <input 
+                          type="text"
+                          placeholder="e.g. 4 hrs jobsite audit on Jun 18"
+                          value={inquiryMsg}
+                          onChange={(e) => setInquiryMsg(e.target.value)}
+                          className="w-full text-xs py-2.5 px-4 rounded-xl border bg-slate-50 border-slate-200 outline-none focus:border-[#0284C7] transition font-sans"
+                        />
+                      </div>
+                    </div>
+                    <button
+                      type="submit"
+                      className="w-full py-2.5 bg-[#0284C7] hover:bg-[#0369a1] text-white text-xs font-bold rounded-xl transition shadow-md flex items-center justify-center gap-1.5 cursor-pointer"
+                    >
+                      <RefreshCw className="w-3.5 h-3.5" />
+                      <span>Log Wages Synchronizer request</span>
+                    </button>
+                    {inquiryStatus && (
+                      <div className="text-[11px] p-3 rounded-lg bg-slate-50 border border-slate-150 text-slate-700 leading-snug">
+                        {inquiryStatus}
+                      </div>
+                    )}
+                  </form>
+                </div>
+              </div>
+
+              {/* Sidebar with settings info */}
+              <div className="space-y-6">
+                <div className="bg-white border border-slate-200 p-6 rounded-2xl shadow-xs space-y-4">
+                  <h3 className="text-sm font-bold text-slate-800">Financial Handshake Settings</h3>
+                  <div className="space-y-3 text-xs leading-relaxed text-slate-600">
+                    <div className="flex justify-between border-b pb-2 border-slate-100">
+                      <span className="text-slate-400 font-mono">Stripe API</span>
+                      <span className="text-emerald-600 font-bold flex items-center gap-1">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                        Operational
+                      </span>
+                    </div>
+                    <div className="flex justify-between border-b pb-2 border-slate-100">
+                      <span className="text-slate-400 font-mono">SSO Federated Handshake</span>
+                      <span className="text-indigo-600 font-bold">Active</span>
+                    </div>
+                    <p className="text-[11px] text-slate-400 pt-1 leading-normal">
+                      This module is bound strictly to your unique employee credentials, verified against the shared Firestore custom claim records.
+                    </p>
+                    <button
+                      onClick={() => auth.signOut()}
+                      className="w-full py-2 border border-slate-200 hover:bg-slate-50 text-slate-700 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer mt-2"
+                    >
+                      <LogOut className="w-3.5 h-3.5 text-slate-400" />
+                      <span>Log Out Session</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </main>
+        )
+      ) : hostDomain === 'timecard' ? (
+        /* STANDALONE TIMECARD SUBDOMAIN APPLICATION */
+        !userClaims.timecard && !userClaims.admin ? (
+          <main className="flex-1 max-w-md w-full mx-auto px-4 py-16 flex flex-col justify-center">
+            <div className="bg-white border border-slate-200 rounded-3xl p-8 shadow-xl text-center space-y-6">
+              <div className="mx-auto w-16 h-16 bg-rose-50 text-rose-600 flex items-center justify-center rounded-2xl border border-rose-100">
+                <ShieldAlert className="w-8 h-8 text-rose-500" />
+              </div>
+              <div className="space-y-2">
+                <h2 className="text-xl font-bold text-slate-900 tracking-tight">Authorization Required</h2>
+                <p className="text-xs leading-relaxed text-slate-500">
+                  You are securely signed in as <strong className="font-semibold text-slate-800">{user.email}</strong>, but your profile lacks the active <span className="font-mono bg-slate-100 px-1.5 py-0.5 rounded font-bold text-slate-700">timecard</span> permission claim.
+                </p>
+                <p className="text-xs text-slate-400">
+                  Please contact the chief administrator to toggle your timekeeping attributes inside the Central Identity Manager.
+                </p>
+              </div>
+              <div className="pt-2 flex flex-col gap-2">
+                <button
+                  onClick={() => auth.signOut()}
+                  className="w-full py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer"
+                >
+                  <LogIn className="w-4 h-4" />
+                  <span>Sign In With Another Account</span>
+                </button>
+              </div>
+            </div>
+          </main>
+        ) : (
+          <main className="flex-1 max-w-4xl w-full mx-auto px-4 py-8 space-y-6 font-sans">
+            {/* Header Card */}
+            <div className="bg-slate-900 text-white p-6 rounded-2xl shadow-xl border border-slate-800 space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-mono font-bold tracking-widest text-[#0D9488] bg-[#CCFBF1]/10 border border-[#0D9488]/20 px-2.5 py-1 rounded-sm uppercase">
+                  timecard.discountelectricalservice.com
+                </span>
+                <span className="text-[10px] bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 font-mono px-2 py-0.5 rounded animate-pulse">
+                  METRICS FEED SYNCED
+                </span>
+              </div>
+              <div className="space-y-1">
+                <h2 className="text-xl font-extrabold text-white tracking-tight">Secure Field Clock-In Suite</h2>
+                <p className="text-xs text-slate-400">
+                  Authorized Field Agent: <span className="text-slate-100 font-semibold">{profileName}</span> ({user.email})
+                </p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <div className="md:col-span-2 space-y-6">
+                {/* Shift Controls Card */}
+                <div className="bg-white border border-slate-200 p-6 rounded-2xl shadow-xs space-y-6 text-center">
+                  <div className="text-xs font-bold text-slate-500 uppercase font-mono tracking-wider">Active Shift Tracker</div>
+                  {clockedIn ? (
+                    <div className="space-y-4">
+                      <div className="text-5xl font-extrabold text-teal-600 font-mono animate-pulse tracking-tight">
+                        {Math.floor(timeElapsed / 60)}m {timeElapsed % 60}s
+                      </div>
+                      <p className="text-xs max-w-sm mx-auto leading-relaxed text-slate-500">
+                        Clocked-in shift triggered at <strong className="text-slate-700 font-semibold">{clockInTime}</strong>. Work hours are computed live and synchronized securely.
+                      </p>
+                      <button
+                        onClick={() => {
+                          setClockedIn(false);
+                          setClockInTime(null);
+                          handleTimecardClockSubmit('clock_out');
+                        }}
+                        className="px-6 py-3 bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs rounded-xl transition shadow-md flex items-center justify-center gap-1.5 mx-auto cursor-pointer"
+                      >
+                        <LogOut className="w-4 h-4" />
+                        Clock Out Shift
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="space-y-4 py-3">
+                      <div className="text-2xl font-bold text-slate-300 uppercase tracking-widest font-mono">Off Clock</div>
+                      <p className="text-xs text-slate-400 max-w-sm mx-auto">
+                        Not currently logged onto any field service shift unit. Ready to track electrical work hours.
+                      </p>
+                      <button
+                        onClick={() => {
+                          const t = new Date().toLocaleTimeString();
+                          setClockedIn(true);
+                          setClockInTime(t);
+                          handleTimecardClockSubmit('clock_in');
+                        }}
+                        className="px-6 py-3 bg-[#0D9488] hover:bg-[#115e59] text-white font-bold text-xs rounded-xl transition shadow-md flex items-center justify-center gap-1.5 mx-auto cursor-pointer font-sans"
+                      >
+                        <LogIn className="w-4 h-4" />
+                        Clock In Active Shift
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                {/* Timecard Information Notice */}
+                <div className="bg-white border border-slate-200 p-6 rounded-2xl shadow-sm space-y-3">
+                  <h3 className="text-sm font-bold text-slate-800">Jobsite Rules & Policies</h3>
+                  <ul className="text-xs text-slate-500 space-y-2 list-disc list-inside leading-relaxed pl-1">
+                    <li>Technicians are required to clock-in immediately upon arrival at any Discount Electrical assigned jobsite.</li>
+                    <li>Overtime calculations are computed using authenticated Firebase cloud timestamp records.</li>
+                    <li>Tampering with client shift logs triggers automated security alerts to supervisor telemetry logs.</li>
+                  </ul>
+                </div>
+              </div>
+
+              {/* Sidebar */}
+              <div className="space-y-6">
+                <div className="bg-white border border-slate-200 p-6 rounded-2xl shadow-xs space-y-4">
+                  <h3 className="text-sm font-bold text-slate-800">Telemetry Status</h3>
+                  <div className="space-y-3 text-xs leading-relaxed">
+                    <div className="flex justify-between border-b pb-2 border-slate-100">
+                      <span className="text-slate-400 font-mono">Shift Sync</span>
+                      <span className="text-emerald-600 font-bold flex items-center gap-1">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping"></span>
+                        Connected
+                      </span>
+                    </div>
+                    <div className="flex justify-between border-b pb-2 border-slate-100">
+                      <span className="text-slate-400 font-mono">Central Pipe</span>
+                      <span className="text-indigo-600 font-bold">Standard SSL</span>
+                    </div>
+                    <button
+                      onClick={() => auth.signOut()}
+                      className="w-full py-2 border border-slate-200 hover:bg-slate-50 text-slate-700 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer mt-2"
+                    >
+                      <LogOut className="w-3.5 h-3.5 text-slate-400" />
+                      <span>Log Out Session</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </main>
+        )
       ) : (
-        /* PORTAL AUTHENTICATED ACCESS STATE */
+        /* PORTAL AUTHENTICATED ACCESS STATE (Default / Admin console) */
         <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
           
           {/* Collapsible Architecture Explainer Guide */}
@@ -488,20 +837,20 @@ export default function App() {
                   <span className="text-xs font-bold uppercase tracking-wider">Subdomain Ecosystem Mapping</span>
                 </div>
                 <h2 className="text-lg font-bold text-white tracking-tight">Modular Sub-Application Routing Integration</h2>
-                <p className="text-xs leading-relaxed">
+                <p className="text-xs leading-relaxed font-sans">
                   All apps in the Discount Electrical Service network share this central Firebase database but target separate client namespaces. Users must log in via this central Auth registry and have their custom Claims configured under the <span className="text-slate-100 font-mono font-bold bg-slate-800 px-1 py-0.5 rounded">users</span> directory to unlock each respective app module structure.
                 </p>
               </div>
               
               <div className="flex flex-wrap gap-2 text-xs font-mono font-bold">
-                <a href="#telemetry" onClick={() => setActiveTab('telemetry')} className="bg-[#334155] border border-slate-700 hover:border-slate-500 text-slate-200 px-3.5 py-2 rounded-xl transition flex items-center space-x-1">
+                <button onClick={() => setActiveTab('telemetry')} className="bg-[#334155] border border-slate-700 hover:border-slate-500 text-slate-200 px-3.5 py-2 rounded-xl transition flex items-center space-x-1 cursor-pointer">
                   <span>View Admin Portal</span>
                   <ArrowRight className="w-3.5 h-3.5" />
-                </a>
-                <a href="#permissions" onClick={() => setActiveTab('permissions')} className="bg-[#334155] border border-slate-700 hover:border-slate-500 text-slate-200 px-3.5 py-2 rounded-xl transition flex items-center space-x-1">
+                </button>
+                <button onClick={() => setActiveTab('permissions')} className="bg-[#334155] border border-slate-700 hover:border-slate-500 text-slate-200 px-3.5 py-2 rounded-xl transition flex items-center space-x-1 cursor-pointer">
                   <span>View Identity Manager</span>
                   <ArrowRight className="w-3.5 h-3.5" />
-                </a>
+                </button>
               </div>
             </div>
           )}
@@ -514,7 +863,7 @@ export default function App() {
                 <span className="text-xs font-bold uppercase tracking-wider font-mono">Central Enterprise Access Center</span>
               </div>
               <h2 className="text-xl font-bold text-slate-800 tracking-tight">Enterprise Subdomain Router</h2>
-              <p className="text-xs text-slate-500">
+              <p className="text-xs text-slate-500 font-sans">
                 This resides as the Master Module controlling access tokens and claims. Direct access route to other modules is unlocked when corresponding claims are active on your profile.
               </p>
             </div>
@@ -578,7 +927,7 @@ export default function App() {
                 {userClaims.pay ? (
                   <button
                     onClick={() => setActiveSimulation('pay')}
-                    className="w-full text-center py-1.5 bg-sky-600 hover:bg-sky-700 text-white font-bold text-xs rounded-lg transition mt-auto flex items-center justify-center gap-1 cursor-pointer shadow-xs"
+                    className="w-full text-center py-1.5 bg-[#0284C7] hover:bg-[#0369a1] text-white font-bold text-xs rounded-lg transition mt-auto flex items-center justify-center gap-1 cursor-pointer shadow-xs"
                   >
                     <Unlock className="w-3.5 h-3.5" />
                     Launch Pay Module
@@ -617,7 +966,7 @@ export default function App() {
                 {userClaims.timecard ? (
                   <button
                     onClick={() => setActiveSimulation('timecard')}
-                    className="w-full text-center py-1.5 bg-teal-600 hover:bg-teal-700 text-white font-bold text-xs rounded-lg transition mt-auto flex items-center justify-center gap-1 cursor-pointer shadow-xs"
+                    className="w-full text-center py-1.5 bg-[#0D9488] hover:bg-[#115e59] text-white font-bold text-xs rounded-lg transition mt-auto flex items-center justify-center gap-1 cursor-pointer shadow-xs"
                   >
                     <Unlock className="w-3.5 h-3.5" />
                     Open Timecard Portal
@@ -675,7 +1024,7 @@ export default function App() {
           {activeSimulation === 'pay' && (
             <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex justify-center items-center z-50 p-4">
               <div className="bg-white border rounded-2xl max-w-lg w-full overflow-hidden shadow-2xl">
-                <div className="bg-sky-600 text-white p-5 flex justify-between items-center">
+                <div className="bg-[#0284C7] text-white p-5 flex justify-between items-center">
                   <div className="flex items-center gap-2">
                     <CreditCard className="w-5 h-5" />
                     <div>
@@ -690,20 +1039,20 @@ export default function App() {
                     ✕
                   </button>
                 </div>
-                <div className="p-6 space-y-4">
-                  <div className="p-4 bg-sky-50 text-sky-900 border border-sky-200 rounded-xl space-y-2">
-                    <div className="text-xs font-bold uppercase font-mono text-sky-700">Worker Pay Terminal</div>
-                    <div className="text-2xl font-extrabold">$48.50 / hr</div>
-                    <p className="text-xs text-sky-850 leading-relaxed">
+                <div className="p-6 space-y-4 font-sans">
+                  <div className="p-4 bg-sky-50 text-sky-900 border border-sky-100 rounded-xl space-y-2">
+                    <div className="text-xs font-bold uppercase font-mono text-[#0284C7]">Worker Pay Terminal</div>
+                    <div className="text-2xl font-extrabold text-[#0284C7] font-mono">$48.50 / hr</div>
+                    <p className="text-xs text-sky-850 leading-relaxed font-sans">
                       Current wage metrics verified for <span className="font-bold">{profileName}</span>. Financial logs stream securely through secure central claims tokens.
                     </p>
                   </div>
-                  <div className="grid grid-cols-2 gap-3 text-xs">
-                    <div className="p-3 border rounded-lg bg-slate-50">
+                  <div className="grid grid-cols-2 gap-3 text-xs font-sans">
+                    <div className="p-3 border border-slate-150 rounded-lg bg-slate-50">
                       <div className="text-slate-400 font-mono text-[9px] uppercase">Base Payroll Period</div>
                       <div className="font-bold mt-1 text-slate-700">Weekly - Wed Net 7</div>
                     </div>
-                    <div className="p-3 border rounded-lg bg-slate-50">
+                    <div className="p-3 border border-slate-150 rounded-lg bg-slate-50">
                       <div className="text-slate-400 font-mono text-[9px] uppercase">Stripe API Status</div>
                       <div className="font-bold mt-1 text-emerald-600 flex items-center gap-1">
                         <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
@@ -711,7 +1060,7 @@ export default function App() {
                       </div>
                     </div>
                   </div>
-                  <p className="text-[11px] text-slate-500 leading-relaxed">
+                  <p className="text-[11px] text-slate-500 leading-relaxed font-sans">
                     This simulated sub-portal demonstrates full secure validation of the <span className="font-bold font-mono text-slate-800 bg-slate-100 px-1 rounded">pay</span> custom claim token emitted from the Central Master Applet.
                   </p>
                 </div>
@@ -730,7 +1079,7 @@ export default function App() {
           {activeSimulation === 'timecard' && (
             <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex justify-center items-center z-50 p-4">
               <div className="bg-white border rounded-2xl max-w-lg w-full overflow-hidden shadow-2xl">
-                <div className="bg-teal-600 text-white p-5 flex justify-between items-center">
+                <div className="bg-[#0D9488] text-white p-5 flex justify-between items-center">
                   <div className="flex items-center gap-2">
                     <Wrench className="w-5 h-5" />
                     <div>
@@ -745,12 +1094,12 @@ export default function App() {
                     ✕
                   </button>
                 </div>
-                <div className="p-6 space-y-4">
-                  <div className="text-center space-y-2 p-6 border border-dashed rounded-xl bg-slate-50/50">
+                <div className="p-6 space-y-4 font-sans">
+                  <div className="text-center space-y-2 p-6 border border-dashed border-slate-200 rounded-xl bg-slate-50/50">
                     <div className="text-xs font-bold text-slate-500 uppercase font-mono tracking-wider">Shift Controls</div>
                     {clockedIn ? (
                       <div className="space-y-2">
-                        <div className="text-3xl font-extrabold text-teal-650 font-mono animate-pulse">
+                        <div className="text-3xl font-extrabold text-teal-600 font-mono animate-pulse">
                           {Math.floor(timeElapsed / 60)}m {timeElapsed % 60}s
                         </div>
                         <p className="text-xs text-slate-500">
@@ -768,8 +1117,8 @@ export default function App() {
                       </div>
                     ) : (
                       <div className="space-y-3">
-                        <div className="text-2xl font-bold text-slate-350">OFF CLOCK</div>
-                        <p className="text-xs text-slate-500">
+                        <div className="text-2xl font-bold text-slate-300 uppercase tracking-widest font-mono">OFF CLOCK</div>
+                        <p className="text-xs text-slate-500 font-sans">
                           Not currently clocked into an electrical service unit.
                         </p>
                         <button
@@ -777,7 +1126,7 @@ export default function App() {
                             setClockedIn(true);
                             setClockInTime(new Date().toLocaleTimeString());
                           }}
-                          className="px-5 py-2.5 bg-teal-600 hover:bg-teal-700 text-white font-bold text-xs rounded-xl transition shadow-xs cursor-pointer flex items-center justify-center gap-1.5 mx-auto"
+                          className="px-5 py-2.5 bg-[#0D9488] hover:bg-[#115e59] text-white font-bold text-xs rounded-xl transition shadow-xs cursor-pointer flex items-center justify-center gap-1.5 mx-auto"
                         >
                           <LogIn className="w-3.5 h-3.5" />
                           Clock In Live Shift
@@ -785,7 +1134,7 @@ export default function App() {
                       </div>
                     )}
                   </div>
-                  <p className="text-[11px] text-slate-500 leading-relaxed text-center">
+                  <p className="text-[11px] text-slate-500 leading-relaxed text-center font-sans">
                     This interactive sub-portal validates worker <span className="font-bold font-mono text-slate-800 bg-slate-100 px-1 rounded">timecard</span> tokens. Changes synchronize live to the supervisor's telemetry pool.
                   </p>
                 </div>
