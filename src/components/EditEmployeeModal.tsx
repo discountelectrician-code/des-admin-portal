@@ -5,6 +5,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { doc, updateDoc, serverTimestamp, setDoc, deleteDoc } from 'firebase/firestore';
+import { updatePassword, sendPasswordResetEmail } from 'firebase/auth';
 import { db, auth as primaryAuth } from '../firebase';
 import { UserProfile, EmployeeProfile, UserClaims } from '../types';
 import { 
@@ -23,7 +24,12 @@ import {
   UserCheck, 
   UserX,
   Shield,
-  Trash2
+  Trash2,
+  Mail,
+  Lock,
+  Eye,
+  EyeOff,
+  Key
 } from 'lucide-react';
 
 interface EditEmployeeModalProps {
@@ -57,6 +63,13 @@ export default function EditEmployeeModal({ isOpen, onClose, onSuccess, user }: 
   const [isDeleting, setIsDeleting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
+  // Password Update State
+  const [newPassword, setNewPassword] = useState('');
+  const [showModalPassword, setShowModalPassword] = useState(false);
+  const [passwordStatusMsg, setPasswordStatusMsg] = useState<{ type: 'success' | 'error', text: string } | null>(null);
+  const [isSendingReset, setIsSendingReset] = useState(false);
+  const [isUpdatingPassword, setIsUpdatingPassword] = useState(false);
+
   // Pre-populate fields when selected user changes
   useEffect(() => {
     if (user) {
@@ -85,6 +98,11 @@ export default function EditEmployeeModal({ isOpen, onClose, onSuccess, user }: 
         setTerminationDate('');
       }
       setErrorMsg(null);
+      setNewPassword('');
+      setShowModalPassword(false);
+      setPasswordStatusMsg(null);
+      setIsSendingReset(false);
+      setIsUpdatingPassword(false);
     }
   }, [user, isOpen]);
 
@@ -460,6 +478,150 @@ export default function EditEmployeeModal({ isOpen, onClose, onSuccess, user }: 
                 <div>
                   <strong className="font-bold">Active Lockout Revocation Rule:</strong> Saving this profile with a status of <span className="font-bold uppercase">Terminated</span> will immediately overwrite and wipe all custom claim tokens (Admin, Pay, Timecard) as false in Firestore. This instantly blocks access to all services.
                 </div>
+              </div>
+            )}
+          </div>
+
+          {/* Password Security Administration Block */}
+          <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200 space-y-4 shadow-sm">
+            <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider flex items-center space-x-1.5">
+              <Lock className="w-3.5 h-3.5 text-indigo-600" />
+              <span>Password Security & Administration</span>
+            </span>
+
+            {user.uid === primaryAuth.currentUser?.uid ? (
+              // Editing OWN password
+              <div className="space-y-3">
+                <p className="text-xs text-slate-500 leading-relaxed font-sans">
+                  You are editing your own employee account profile. Enter a new password below to update your security credentials.
+                </p>
+                <div className="flex flex-col sm:flex-row items-stretch gap-3">
+                  <div className="relative flex-1">
+                    <input 
+                      type={showModalPassword ? "text" : "password"}
+                      value={newPassword}
+                      onChange={e => setNewPassword(e.target.value)}
+                      placeholder="Enter new password (min. 6 chars)"
+                      className="w-full text-sm text-slate-800 bg-white border border-slate-200 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 rounded-xl pl-4 pr-10 py-3 h-12 min-h-[48px] outline-none transition font-sans shadow-sm"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowModalPassword(!showModalPassword)}
+                      className="absolute right-3 top-3.5 text-slate-400 hover:text-slate-600 transition-colors p-1 flex items-center justify-center cursor-pointer border-none bg-transparent"
+                      title={showModalPassword ? "Hide password" : "Show password"}
+                    >
+                      {showModalPassword ? <EyeOff className="w-4.5 h-4.5" /> : <Eye className="w-4.5 h-4.5" />}
+                    </button>
+                  </div>
+                  <button
+                    type="button"
+                    disabled={isUpdatingPassword || newPassword.length < 6}
+                    onClick={async () => {
+                      setIsUpdatingPassword(true);
+                      setPasswordStatusMsg(null);
+                      try {
+                        await updatePassword(primaryAuth.currentUser!, newPassword);
+                        setPasswordStatusMsg({ type: 'success', text: 'Password successfully updated!' });
+                        setNewPassword('');
+                        
+                        // Dispatch Telemetry events to sync log trails
+                        try {
+                          const eventId = "log_pw_" + Date.now();
+                          await setDoc(doc(db, 'tracking_events', eventId), {
+                            id: eventId,
+                            timestamp: serverTimestamp(),
+                            eventType: 'auth',
+                            subdomain: 'admin',
+                            userId: primaryAuth.currentUser?.uid,
+                            userEmail: primaryAuth.currentUser?.email,
+                            message: `User updated their own password successfully`,
+                            status: 'info',
+                            details: JSON.stringify({ uid: user.uid })
+                          });
+                        } catch (logErr) {
+                          console.warn("Could not log password update activity:", logErr);
+                        }
+                      } catch (err: any) {
+                        console.error(err);
+                        setPasswordStatusMsg({ type: 'error', text: err.message || 'Failed to update password.' });
+                      } finally {
+                        setIsUpdatingPassword(false);
+                      }
+                    }}
+                    className="px-5 py-3 h-12 min-h-[48px] text-xs font-bold bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-200 disabled:text-slate-400 disabled:cursor-not-allowed text-white rounded-xl transition shadow-md flex items-center justify-center gap-1.5 cursor-pointer border-none"
+                  >
+                    {isUpdatingPassword ? (
+                      <Loader2 className="w-4 h-4 animate-spin text-white" />
+                    ) : (
+                      <Key className="w-4 h-4" />
+                    )}
+                    <span>Update My Password</span>
+                  </button>
+                </div>
+              </div>
+            ) : (
+              // Editing ANOTHER employee's password (as admin)
+              <div className="space-y-3">
+                <p className="text-xs text-slate-500 leading-relaxed font-sans">
+                  To maintain system compliance and user security, you can send an official security reset email directly to <strong className="font-semibold text-slate-700">{user.email}</strong> to let them pick a new secure password.
+                </p>
+                <button
+                  type="button"
+                  disabled={isSendingReset}
+                  onClick={async () => {
+                    setIsSendingReset(true);
+                    setPasswordStatusMsg(null);
+                    try {
+                      await sendPasswordResetEmail(primaryAuth, user.email);
+                      setPasswordStatusMsg({ 
+                        type: 'success', 
+                        text: `Reset verification email sent to ${user.email}!` 
+                      });
+                      
+                      // Dispatch Telemetry events to sync log trails
+                      try {
+                        const eventId = "log_pw_reset_" + Date.now();
+                        await setDoc(doc(db, 'tracking_events', eventId), {
+                          id: eventId,
+                          timestamp: serverTimestamp(),
+                          eventType: 'auth',
+                          subdomain: 'admin',
+                          userId: primaryAuth.currentUser?.uid,
+                          userEmail: primaryAuth.currentUser?.email,
+                          message: `Admin requested a password reset link for ${user.displayName} (${user.email})`,
+                          status: 'info',
+                          details: JSON.stringify({ targetUid: user.uid })
+                        });
+                      } catch (logErr) {
+                        console.warn("Could not log password reset activity:", logErr);
+                      }
+                    } catch (err: any) {
+                      console.error(err);
+                      setPasswordStatusMsg({ type: 'error', text: err.message || 'Failed to trigger reset email.' });
+                    } finally {
+                      setIsSendingReset(false);
+                    }
+                  }}
+                  className="px-5 py-2.5 bg-slate-250 hover:bg-slate-300 disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed text-slate-700 rounded-xl text-xs font-semibold transition flex items-center justify-center gap-2 cursor-pointer border border-slate-200"
+                >
+                  <Mail className="w-4 h-4" />
+                  <span>{isSendingReset ? 'Sending reset link...' : 'Send Password Reset Link'}</span>
+                </button>
+              </div>
+            )}
+
+            {passwordStatusMsg && (
+              <div className={`p-3 rounded-xl border text-xs flex items-center gap-2 ${
+                passwordStatusMsg.type === 'success' 
+                  ? 'bg-emerald-50 border-emerald-200 text-emerald-800' 
+                  : 'bg-red-50 border-red-200 text-red-850 text-red-800'
+              }`}>
+                {passwordStatusMsg.type === 'success' ? (
+                  <Check className="w-4 h-4 text-emerald-600 shrink-0" />
+                ) : (
+                  <AlertCircle className="w-4 h-4 text-red-600 shrink-0" />
+                )}
+                <span>{passwordStatusMsg.text}</span>
               </div>
             )}
           </div>

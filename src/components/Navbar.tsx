@@ -178,10 +178,10 @@ export default function Navbar({ activeTab, setActiveTab, currentUser }: NavbarP
                 <button 
                   onClick={handleSignOut}
                   title="Sign Out Account"
-                  className="p-1 px-2.5 bg-slate-800 hover:bg-slate-700 rounded-lg text-slate-300 hover:text-rose-450 border border-slate-700 transition flex items-center justify-center font-semibold font-sans text-xs"
+                  className="p-1 px-2.5 bg-slate-800 hover:bg-slate-700 rounded-lg text-slate-300 hover:text-rose-400 border border-slate-700 transition flex items-center justify-center font-semibold font-sans text-xs gap-1 cursor-pointer"
                 >
-                  <LogOut className="w-3.5 h-3.5 mr-1" />
-                  <span>Logout</span>
+                  <LogOut className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">Logout</span>
                 </button>
               </div>
             ) : (
