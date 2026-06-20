@@ -40,14 +40,6 @@ export default function TelemetryDashboard() {
   const [filterType, setFilterType] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
   
-  // Event generator states
-  const [customType, setCustomType] = useState<'auth' | 'payment' | 'timecard' | 'system' | 'error'>('system');
-  const [customSubdomain, setCustomSubdomain] = useState<'admin' | 'pay' | 'timecard'>('admin');
-  const [customMessage, setCustomMessage] = useState('');
-  const [customStatus, setCustomStatus] = useState<'info' | 'success' | 'warning' | 'error'>('info');
-  const [customDetails, setCustomDetails] = useState('');
-  const [isInserting, setIsInserting] = useState(false);
-
   // Subscribe to tracking_events
   useEffect(() => {
     setLoading(true);
@@ -83,88 +75,33 @@ export default function TelemetryDashboard() {
     return () => unsubscribe();
   }, []);
 
-  // Post a dummy/custom telemetry record
-  const handleGenerateEvent = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const user = auth.currentUser;
-    if (!user) {
-      alert("Please log in to generate database telemetry events.");
-      return;
-    }
-
-    setIsInserting(true);
-    try {
-      const eventId = "log_" + Date.now();
-      const payloadRef = doc(db, 'tracking_events', eventId);
-      
-      const newEvent = {
-        id: eventId,
-        timestamp: serverTimestamp(),
-        eventType: customType,
-        subdomain: customSubdomain,
-        userId: user.uid,
-        userEmail: user.email || 'anon@discountelectrical.com',
-        message: customMessage.trim() || `Auto event logged from ${customSubdomain}.`,
-        status: customStatus,
-        details: customDetails.trim() || JSON.stringify({ device: navigator.userAgent, locale: navigator.language })
-      };
-
-      await setDoc(payloadRef, newEvent);
-      setCustomMessage('');
-      setCustomDetails('');
-    } catch (err: any) {
-      console.error(err);
-      alert(`Access Blocked by Firebase Security Rules:\n${err.message}`);
-    } finally {
-      setIsInserting(false);
-    }
-  };
-
-  // Preset generator helper
-  const triggerQuickPreset = async (
-    sub: 'admin' | 'pay' | 'timecard',
-    type: 'auth' | 'payment' | 'timecard' | 'system' | 'error',
-    status: 'info' | 'success' | 'warning' | 'error',
-    msg: string
-  ) => {
-    const user = auth.currentUser;
-    if (!user) return;
-    
-    try {
-      const eventId = "log_" + Date.now();
-      await setDoc(doc(db, 'tracking_events', eventId), {
-        id: eventId,
-        timestamp: serverTimestamp(),
-        eventType: type,
-        subdomain: sub,
-        userId: user.uid,
-        userEmail: user.email || 'sync@discountelectrical.com',
-        message: msg,
-        status: status,
-        details: JSON.stringify({ 
-          ip: "192.168.1.18", 
-          port: 3000, 
-          triggeredBy: "QuickPreset", 
-          claimRequired: sub === 'admin' ? 'admin' : sub
-        })
-      });
-    } catch (err: any) {
-      alert(`Access Blocked by Security Rules. Users require the '${sub}' custom claim to log data into the '${sub}' domain.\n\nError: ${err.message}`);
-    }
-  };
-
   // Filters calculation
   const filteredEvents = events.filter(evt => {
-    const matchSubdomain = filterSubdomain === 'all' || evt.subdomain === filterSubdomain;
-    const matchStatus = filterStatus === 'all' || evt.status === filterStatus;
-    const matchType = filterType === 'all' || evt.eventType === filterType;
+    const isPageLoad = (evt.message && (
+                        evt.message.toLowerCase().includes('page load') || 
+                        evt.message.toLowerCase().includes('discountelectricalservice.com')
+                       )) || 
+                       evt.eventType === 'page_load' || 
+                       evt.eventType === 'page_loads';
+                       
+    const isRequestService = (evt.message && (
+                             evt.message.toLowerCase().includes('request service')
+                             )) || 
+                             evt.eventType === 'request_service' || 
+                             evt.eventType === 'request_services';
+
+    if (!isPageLoad && !isRequestService) {
+      return false;
+    }
+
+    // Search query constraint
     const searchLower = searchQuery.toLowerCase();
     const matchSearch = searchQuery === '' || 
       evt.message.toLowerCase().includes(searchLower) || 
       evt.userEmail.toLowerCase().includes(searchLower) ||
       evt.id.toLowerCase().includes(searchLower);
 
-    return matchSubdomain && matchStatus && matchType && matchSearch;
+    return matchSearch;
   });
 
   // Calculate stats
@@ -232,124 +169,6 @@ export default function TelemetryDashboard() {
               Live Sync
             </span>
           </div>
-        </div>
-
-        {/* Generate Event Form */}
-        <div className="bg-white border border-slate-250 rounded-xl shadow-sm p-5">
-          <h3 className="text-sm font-semibold text-slate-900 uppercase tracking-wider mb-4 flex items-center justify-between">
-            <span>Simulation Event Generator</span>
-            <span className="text-xs font-mono text-amber-600 bg-amber-50 px-2 py-0.5 rounded border border-amber-250 font-normal">Security Tester</span>
-          </h3>
-
-          <form onSubmit={handleGenerateEvent} className="space-y-4">
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">Target Application Subdomain</label>
-              <select 
-                value={customSubdomain} 
-                onChange={(e) => setCustomSubdomain(e.target.value as any)}
-                className="w-full text-sm rounded-lg border-slate-300 bg-slate-50 p-2 font-mono"
-              >
-                <option value="admin">admin.discountelectricalservice.com</option>
-                <option value="pay">pay.discountelectricalservice.com</option>
-                <option value="timecard">timecard.discountelectricalservice.com</option>
-              </select>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">Event category</label>
-                <select 
-                  value={customType} 
-                  onChange={(e) => setCustomType(e.target.value as any)}
-                  className="w-full text-xs rounded-lg border-slate-300 bg-slate-50 p-2 font-mono"
-                >
-                  <option value="system">System</option>
-                  <option value="auth">Auth Event</option>
-                  <option value="payment">Payment</option>
-                  <option value="timecard">Timecard</option>
-                  <option value="error">Failure/Error</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">Severity / Status</label>
-                <select 
-                  value={customStatus} 
-                  onChange={(e) => setCustomStatus(e.target.value as any)}
-                  className="w-full text-xs rounded-lg border-slate-300 bg-slate-50 p-2 font-mono"
-                >
-                  <option value="info">Info</option>
-                  <option value="success">Success</option>
-                  <option value="warning">Warning</option>
-                  <option value="error">Error</option>
-                </select>
-              </div>
-            </div>
-
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">Message Description</label>
-              <input 
-                type="text" 
-                value={customMessage} 
-                onChange={(e) => setCustomMessage(e.target.value)} 
-                placeholder="e.g., payment of $340 processed successfully"
-                className="w-full text-sm rounded-lg border-slate-300 bg-slate-50 p-2 outline-none"
-              />
-            </div>
-
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">Payload Metadata (String/JSON)</label>
-              <textarea 
-                value={customDetails} 
-                onChange={(e) => setCustomDetails(e.target.value)} 
-                placeholder='e.g., { "jobId": "J-302", "invoice": 4492 }'
-                rows={2}
-                className="w-full text-xs font-mono rounded-lg border-slate-300 bg-slate-50 p-2 outline-none"
-              />
-            </div>
-
-            <button 
-              type="submit" 
-              disabled={isInserting}
-              className="w-full flex items-center justify-center space-x-2 bg-slate-900 hover:bg-slate-800 text-white font-medium py-2 px-4 rounded-lg text-sm transition-all"
-            >
-              {isInserting ? (
-                <RefreshCw className="w-4 h-4 animate-spin" />
-              ) : (
-                <Plus className="w-4 h-4" />
-              )}
-              <span>Commit to Firestore</span>
-            </button>
-          </form>
-
-          {/* Quick Sandbox Buttons */}
-          <div className="mt-5 pt-4 border-t border-slate-100">
-            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block mb-2">Rule Sandbox Quick-Trigger Presets</span>
-            <div className="grid grid-cols-1 gap-2">
-              <button 
-                onClick={() => triggerQuickPreset('pay', 'payment', 'success', 'Electric service job checkout: Invoice #4891')}
-                className="w-full text-left p-2 rounded bg-sky-50 text-sky-800 hover:bg-sky-100 text-xs flex justify-between items-center transition"
-              >
-                <span>Mock Pay Event</span>
-                <span className="font-mono text-[9px] text-sky-600 border border-sky-300 px-1 py-0.5 rounded">Requires "pay" claim</span>
-              </button>
-              <button 
-                onClick={() => triggerQuickPreset('timecard', 'timecard', 'success', 'Technician clocked in: Jobsite #9012')}
-                className="w-full text-left p-2 rounded bg-teal-50 text-teal-800 hover:bg-teal-100 text-xs flex justify-between items-center transition"
-              >
-                <span>Mock Timecard Event</span>
-                <span className="font-mono text-[9px] text-teal-600 border border-teal-300 px-1 py-0.5 rounded">Requires "timecard" claim</span>
-              </button>
-              <button 
-                onClick={() => triggerQuickPreset('admin', 'auth', 'warning', 'Unauthorized admin login retry from 182.204.3.4')}
-                className="w-full text-left p-2 rounded bg-purple-50 text-purple-800 hover:bg-purple-100 text-xs flex justify-between items-center transition"
-              >
-                <span>Mock Admin Event</span>
-                <span className="font-mono text-[9px] text-purple-600 border border-purple-300 px-1 py-0.5 rounded">Requires "admin" claim</span>
-              </button>
-            </div>
-          </div>
-
         </div>
 
       </div>

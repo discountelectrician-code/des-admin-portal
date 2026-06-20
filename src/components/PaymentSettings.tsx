@@ -54,10 +54,12 @@ export default function PaymentSettings() {
   const [stripeSecretKey, setStripeSecretKey] = useState('');
   const [squareAppId, setSquareAppId] = useState('');
   const [squareAccessToken, setSquareAccessToken] = useState('');
+  const [squareLocationId, setSquareLocationId] = useState('');
 
   const [hasStripeSecretKey, setHasStripeSecretKey] = useState(false);
   const [hasSquareAppId, setHasSquareAppId] = useState(false);
   const [hasSquareAccessToken, setHasSquareAccessToken] = useState(false);
+  const [hasSquareLocationId, setHasSquareLocationId] = useState(false);
 
   // Firestore error handler following standard integration guidelines
   function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
@@ -124,6 +126,12 @@ export default function PaymentSettings() {
           setHasStripeSecretKey(!!data.stripeSecretKey);
           setHasSquareAppId(!!data.squareAppId);
           setHasSquareAccessToken(!!data.squareAccessToken);
+          setHasSquareLocationId(!!data.squareLocationId);
+
+          if (data.stripeSecretKey) setStripeSecretKey(data.stripeSecretKey);
+          if (data.squareAppId) setSquareAppId(data.squareAppId);
+          if (data.squareAccessToken) setSquareAccessToken(data.squareAccessToken);
+          if (data.squareLocationId) setSquareLocationId(data.squareLocationId);
         }
       } catch (err) {
         // Log in compliant error details format but do not crash the view for unauthorized readers
@@ -168,6 +176,9 @@ export default function PaymentSettings() {
       if (squareAccessToken.trim()) {
         payload.squareAccessToken = squareAccessToken.trim();
       }
+      if (squareLocationId.trim()) {
+        payload.squareLocationId = squareLocationId.trim();
+      }
 
       await setDoc(configDocRef, payload, { merge: true });
 
@@ -175,11 +186,13 @@ export default function PaymentSettings() {
       if (stripeSecretKey.trim()) setHasStripeSecretKey(true);
       if (squareAppId.trim()) setHasSquareAppId(true);
       if (squareAccessToken.trim()) setHasSquareAccessToken(true);
+      if (squareLocationId.trim()) setHasSquareLocationId(true);
 
       // Clear fields after saving to prevent re-display
       setStripeSecretKey('');
       setSquareAppId('');
       setSquareAccessToken('');
+      setSquareLocationId('');
 
       setSuccess(true);
       
@@ -220,28 +233,6 @@ export default function PaymentSettings() {
     <div id="payment_settings_view" className="grid grid-cols-1 lg:grid-cols-3 gap-8">
       {/* LEFT COLUMN: Educational & Gateway Info */}
       <div className="space-y-6 lg:col-span-1">
-        <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 text-white">
-          <div className="flex items-center space-x-3 text-cyan-400 mb-3">
-            <CreditCard className="w-6 h-6" />
-            <h2 className="text-xl font-bold tracking-tight font-sans">Payment Integration</h2>
-          </div>
-          <p className="text-sm text-slate-400 leading-relaxed">
-            Choose the active customer payment provider utilized across the Discount Electrical Service invoice and field worker checkout tools.
-          </p>
-          <div className="mt-4 pt-4 border-t border-slate-800 flex flex-col gap-2 text-xs font-mono text-slate-500">
-            <div className="flex justify-between">
-              <span>Scope: settings/payment_config</span>
-            </div>
-            <div className="flex justify-between items-center">
-              <span>Status:</span>
-              <span className="flex items-center text-emerald-500 font-semibold font-sans">
-                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse mr-1.5"></span>
-                Operational
-              </span>
-            </div>
-          </div>
-        </div>
-
         {/* Informative Warning box */}
         {!isAdmin && (
           <div className="bg-amber-50 rounded-xl p-4 border border-amber-250 text-amber-800 flex items-start space-x-3">
@@ -371,7 +362,7 @@ export default function PaymentSettings() {
 
             {/* SECURE API CREDENTIALS FORM */}
             <div className="mt-8 pt-6 border-t border-slate-100 space-y-4">
-              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block font-mono mb-2">Secure API Credentials (Masked Inputs)</span>
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block font-mono mb-2">Secure API Credentials (Unmasked Layout)</span>
               
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {/* Stripe Key */}
@@ -383,10 +374,10 @@ export default function PaymentSettings() {
                     )}
                   </label>
                   <input
-                    type="password"
+                    type="text"
                     value={stripeSecretKey}
                     onChange={(e) => setStripeSecretKey(e.target.value)}
-                    placeholder={hasStripeSecretKey ? "•••••••• (Saved. Type key to overwrite)" : "sk_live_..."}
+                    placeholder="sk_live_..."
                     className="w-full bg-slate-50 border border-slate-200 text-slate-800 text-sm rounded-lg p-2.5 font-mono focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
                     disabled={!isAdmin}
                   />
@@ -397,14 +388,14 @@ export default function PaymentSettings() {
                   <label className="block text-xs font-bold text-slate-700 flex items-center justify-between">
                     <span>Square Application ID</span>
                     {hasSquareAppId && (
-                      <span className="text-[10px] font-semibold text-emerald-600 font-sans">✓ Configured</span>
+                      <span className="text-[10px] font-semibold text-emerald-600 font-sans font-sans">✓ Configured</span>
                     )}
                   </label>
                   <input
-                    type="password"
+                    type="text"
                     value={squareAppId}
                     onChange={(e) => setSquareAppId(e.target.value)}
-                    placeholder={hasSquareAppId ? "•••••••• (Saved. Type ID to overwrite)" : "sq-app-id-..."}
+                    placeholder="sq-app-id-..."
                     className="w-full bg-slate-50 border border-slate-200 text-slate-800 text-sm rounded-lg p-2.5 font-mono focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
                     disabled={!isAdmin}
                   />
@@ -415,14 +406,32 @@ export default function PaymentSettings() {
                   <label className="block text-xs font-bold text-slate-700 flex items-center justify-between">
                     <span>Square Access Token</span>
                     {hasSquareAccessToken && (
-                      <span className="text-[10px] font-semibold text-emerald-600 font-sans">✓ Configured</span>
+                      <span className="text-[10px] font-semibold text-emerald-600 font-sans font-sans">✓ Configured</span>
                     )}
                   </label>
                   <input
-                    type="password"
+                    type="text"
                     value={squareAccessToken}
                     onChange={(e) => setSquareAccessToken(e.target.value)}
-                    placeholder={hasSquareAccessToken ? "•••••••• (Saved. Type token to overwrite)" : "EAAA..."}
+                    placeholder="EAAA..."
+                    className="w-full bg-slate-50 border border-slate-200 text-slate-800 text-sm rounded-lg p-2.5 font-mono focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
+                    disabled={!isAdmin}
+                  />
+                </div>
+
+                {/* Square Location ID */}
+                <div className="space-y-1.5">
+                  <label className="block text-xs font-bold text-slate-700 flex items-center justify-between">
+                    <span>Square Location ID</span>
+                    {hasSquareLocationId && (
+                      <span className="text-[10px] font-semibold text-emerald-600 font-sans font-sans">✓ Configured</span>
+                    )}
+                  </label>
+                  <input
+                    type="text"
+                    value={squareLocationId}
+                    onChange={(e) => setSquareLocationId(e.target.value)}
+                    placeholder="L-..."
                     className="w-full bg-slate-50 border border-slate-200 text-slate-800 text-sm rounded-lg p-2.5 font-mono focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
                     disabled={!isAdmin}
                   />

@@ -17,13 +17,12 @@ import {
   ShieldCheck, 
   User as UserIcon,
   HelpCircle,
-  CreditCard,
-  History
+  CreditCard
 } from 'lucide-react';
 
 interface NavbarProps {
-  activeTab: 'telemetry' | 'permissions' | 'payment' | 'historical_sync';
-  setActiveTab: (tab: 'telemetry' | 'permissions' | 'payment' | 'historical_sync') => void;
+  activeTab: 'telemetry' | 'permissions' | 'payment';
+  setActiveTab: (tab: 'telemetry' | 'permissions' | 'payment') => void;
   currentUser: User | null;
 }
 
@@ -138,18 +137,6 @@ export default function Navbar({ activeTab, setActiveTab, currentUser }: NavbarP
                 <CreditCard className="w-4 h-4" />
                 <span>Payment Settings</span>
               </button>
-
-              <button
-                onClick={() => setActiveTab('historical_sync')}
-                className={`flex items-center space-x-2 px-4 py-2 rounded-lg font-semibold transition ${
-                  activeTab === 'historical_sync' 
-                    ? 'bg-slate-800 text-amber-400 border border-slate-700 shadow-sm' 
-                    : 'text-slate-350 hover:text-white hover:bg-slate-800/40'
-                }`}
-              >
-                <History className="w-4 h-4" />
-                <span>Historical Sync</span>
-              </button>
             </nav>
           )}
 
@@ -223,15 +210,6 @@ export default function Navbar({ activeTab, setActiveTab, currentUser }: NavbarP
             >
               <CreditCard className="w-3.5 h-3.5" />
               <span>Payment</span>
-            </button>
-            <button
-              onClick={() => setActiveTab('historical_sync')}
-              className={`flex items-center space-x-1 px-3 py-1.5 rounded-md ${
-                activeTab === 'historical_sync' ? 'bg-slate-800 text-amber-400' : 'text-slate-400'
-              }`}
-            >
-              <History className="w-3.5 h-3.5" />
-              <span>Sync</span>
             </button>
           </div>
         )}
