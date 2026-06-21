@@ -33,6 +33,7 @@ export default function OnboardingPage({ inviteId, onComplete }: OnboardingPageP
   const [validationError, setValidationError] = useState<string | null>(null);
 
   // Sign up fields
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -80,6 +81,7 @@ export default function OnboardingPage({ inviteId, onComplete }: OnboardingPageP
         }
 
         setInviteData(data);
+        setEmail(data.email || '');
       } catch (err: any) {
         console.error('[Onboard Verification] Failed:', err);
         setValidationError(`Failed to parse invitation details: ${err.message}`);
@@ -178,7 +180,7 @@ export default function OnboardingPage({ inviteId, onComplete }: OnboardingPageP
     setAuthError(null);
 
     try {
-      const userCredential = await createUserWithEmailAndPassword(auth, inviteData.email, password);
+      const userCredential = await createUserWithEmailAndPassword(auth, email, password);
       
       // Update Auth record's display name
       await updateProfile(userCredential.user, {
@@ -186,7 +188,7 @@ export default function OnboardingPage({ inviteId, onComplete }: OnboardingPageP
         photoURL: inviteData.photoUrl || null
       });
 
-      await finalizeUserOnboarding(userCredential.user, inviteData.email);
+      await finalizeUserOnboarding(userCredential.user, email);
     } catch (err: any) {
       console.error('[Email Onboard Error] Sign up failure:', err);
       setAuthError(err.message || 'Failed creating user authentication token.');
@@ -210,7 +212,7 @@ export default function OnboardingPage({ inviteId, onComplete }: OnboardingPageP
       const targetEmail = googleUser.email || '';
       console.log(`[Google Auth Claims Match] Verified email: ${targetEmail}`);
 
-      await finalizeUserOnboarding(googleUser, targetEmail || inviteData.email);
+      await finalizeUserOnboarding(googleUser, targetEmail || email || inviteData.email);
     } catch (err: any) {
       console.error('[Google Onboard Error] Sign up failure:', err);
       setAuthError(err.message || 'Google Auth Popup closed or cancelled by worker.');
@@ -286,29 +288,6 @@ export default function OnboardingPage({ inviteId, onComplete }: OnboardingPageP
           </div>
         </div>
 
-        {/* HR Profile Details Sheet */}
-        <div className="p-4 bg-slate-900 border border-slate-800/80 rounded-2xl space-y-2.5 text-xs text-slate-300">
-          <div className="text-[10px] font-bold text-indigo-400 uppercase tracking-wider mb-1">Onboarding HR Record</div>
-          
-          <div className="grid grid-cols-2 gap-3 font-sans">
-            <div className="flex items-center space-x-2">
-              <Briefcase className="w-3.5 h-3.5 text-slate-500 shrink-0" />
-              <div>
-                <span className="text-[9px] text-slate-500 block uppercase font-mono">Classification</span>
-                <span className="font-bold text-slate-300">{inviteData.role}</span>
-              </div>
-            </div>
-
-            <div className="flex items-center space-x-2">
-              <DollarSign className="w-3.5 h-3.5 text-slate-500 shrink-0" />
-              <div>
-                <span className="text-[9px] text-slate-500 block uppercase font-mono">Pay Tier</span>
-                <span className="font-bold text-slate-300">${inviteData.payRate?.toFixed(2)}/hr</span>
-              </div>
-            </div>
-          </div>
-        </div>
-
         {authError && (
           <div className="p-3.5 bg-rose-500/10 border border-rose-500/25 text-rose-400 text-xs rounded-xl flex gap-2 font-medium">
             <AlertTriangle className="w-4 h-4 shrink-0" />
@@ -336,18 +315,19 @@ export default function OnboardingPage({ inviteId, onComplete }: OnboardingPageP
 
           <form onSubmit={handleEmailSignUp} className="space-y-4">
             
-            {/* Locked Email Input */}
+            {/* Preferred Email Input */}
             <div className="space-y-1.5">
-              <label className="text-[10px] uppercase font-bold text-slate-400 font-mono tracking-wider flex items-center gap-1.5">
-                <Mail className="w-3.5 h-3.5 text-slate-505" />
-                <span>Invited Email (Read Only)</span>
+              <label className="text-[10px] uppercase font-bold text-indigo-400 font-mono tracking-wider flex items-center gap-1.5">
+                <Mail className="w-3.5 h-3.5 text-indigo-400" />
+                <span>Preferred Email Address</span>
               </label>
               <input 
                 type="email" 
-                disabled 
-                readOnly
-                value={inviteData.email}
-                className="w-full text-xs font-mono text-slate-500 bg-slate-900 border border-slate-800 rounded-xl px-4 py-3 h-12 outline-none select-none opacity-85"
+                required
+                value={email}
+                onChange={e => setEmail(e.target.value)}
+                placeholder="Enter your preferred email (e.g. michael@example.com)"
+                className="w-full text-xs font-mono text-slate-200 bg-slate-900 border border-slate-850 hover:border-slate-800 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 rounded-xl px-4 py-3 h-12 outline-none transition"
               />
             </div>
 

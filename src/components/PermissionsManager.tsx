@@ -9,6 +9,7 @@ import {
   onSnapshot, 
   doc, 
   updateDoc,
+  deleteDoc,
   serverTimestamp
 } from 'firebase/firestore';
 import { sendPasswordResetEmail } from 'firebase/auth';
@@ -33,13 +34,15 @@ import {
   FileText,
   Edit,
   UserCheck,
-  UserX
+  UserX,
+  Trash2
 } from 'lucide-react';
 import AddEmployeeModal from './AddEmployeeModal';
 import EditEmployeeModal from './EditEmployeeModal';
 
 export default function PermissionsManager() {
-  const [users, setUsers] = useState<UserProfile[]>([]);
+  const [activeUsers, setActiveUsers] = useState<UserProfile[]>([]);
+  const [pendingInvites, setPendingInvites] = useState<UserProfile[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
   const [isUpdating, setIsUpdating] = useState(false);
@@ -47,16 +50,22 @@ export default function PermissionsManager() {
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<UserProfile | null>(null);
 
+  const users = React.useMemo(() => {
+    const combined = [...activeUsers, ...pendingInvites];
+    return combined.sort((a, b) => a.displayName.localeCompare(b.displayName));
+  }, [activeUsers, pendingInvites]);
+
   const selectedUser = users.find(u => u.uid === selectedUserId) || null;
 
-  // Subscribe to /users collection
+  // Subscribe to /users collection and /invites collection in real-time
   useEffect(() => {
     setLoading(true);
-    const unsubscribe = onSnapshot(collection(db, 'users'), (snapshot) => {
-      const loadedUsers: UserProfile[] = [];
+    
+    const unsubUsers = onSnapshot(collection(db, 'users'), (snapshot) => {
+      const list: UserProfile[] = [];
       snapshot.forEach((docSnap) => {
         const data = docSnap.data();
-        loadedUsers.push({
+        list.push({
           uid: docSnap.id,
           email: data.email || '',
           displayName: data.displayName || 'Anonymous User',
@@ -66,23 +75,112 @@ export default function PermissionsManager() {
           employeeProfile: data.employeeProfile
         });
       });
-      setUsers(loadedUsers);
-      
-      // Auto-select first user if none is selected
-      setSelectedUserId((currentId) => {
-        if (loadedUsers.length > 0 && !currentId) {
-          return loadedUsers[0].uid;
+      setActiveUsers(list);
+    }, (error) => {
+      console.error("Error reading active users:", error);
+    });
+
+    const unsubInvites = onSnapshot(collection(db, 'invites'), (snapshot) => {
+      const list: UserProfile[] = [];
+      snapshot.forEach((docSnap) => {
+        const data = docSnap.data();
+        if (data.status === 'pending') {
+          list.push({
+            uid: docSnap.id,
+            isInvite: true,
+            email: `Pending (SMS to ${data.cellPhone || 'N/A'})`,
+            displayName: data.name || 'Pending Onboarding',
+            createdAt: data.createdAt,
+            updatedAt: data.createdAt,
+            claims: data.claims || { admin: false, pay: false, timecard: false },
+            employeeProfile: {
+              hireDate: data.hireDate || new Date().toISOString().split('T')[0],
+              payRate: parseFloat(data.payRate || '0'),
+              techLevel: data.role || 'Apprentice',
+              homeAddress: data.homeAddress || '',
+              cellPhone: data.cellPhone || '',
+              driversLicense: data.driversLicense || '',
+              status: 'Pending',
+              photoUrl: data.photoUrl || `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(data.name || 'Pending')}`,
+              ext: data.ext
+            }
+          });
         }
-        return currentId;
       });
+      setPendingInvites(list);
       setLoading(false);
     }, (error) => {
-      console.error("Error reading users permissions list:", error);
+      console.error("Error reading pending invites:", error);
       setLoading(false);
     });
 
-    return () => unsubscribe();
+    return () => {
+      unsubUsers();
+      unsubInvites();
+    };
   }, []);
+
+  // Auto-select first user if none is selected
+  useEffect(() => {
+    if (users.length > 0 && !selectedUserId) {
+      setSelectedUserId(users[0].uid);
+    }
+  }, [users, selectedUserId]);
+
+  const handleDeleteUserOrInvite = async (usr: UserProfile) => {
+    const isInvite = !!usr.isInvite;
+    const confirmMsg = isInvite
+      ? `Are you sure you want to delete the pending onboarding invitation for ${usr.displayName}?\nThis action cannot be undone.`
+      : `Are you sure you want to delete active employee profile: ${usr.displayName} (${usr.email})?\nThis action cannot be undone.`;
+      
+    if (!window.confirm(confirmMsg)) return;
+    
+    try {
+      const docRef = doc(db, isInvite ? 'invites' : 'users', usr.uid);
+      await deleteDoc(docRef);
+      
+      // Dispatch security logging event
+      try {
+        const eventId = "log_delete_mgr_" + Date.now();
+        await updateDoc(doc(db, 'tracking_events', eventId), {
+          id: eventId,
+          timestamp: serverTimestamp(),
+          eventType: 'auth',
+          subdomain: 'admin',
+          userId: auth.currentUser?.uid || 'system_manager',
+          userEmail: auth.currentUser?.email || 'admin@discountelectrical.com',
+          message: `Deleted ${isInvite ? 'Onboarding Invite' : 'Employee Profile'}: ${usr.displayName} (${usr.email})`,
+          status: 'warning'
+        });
+      } catch (logErr) {
+        // tracking event database might verify rules or require setDoc for new logging records
+        try {
+          const { setDoc } = await import('firebase/firestore');
+          const eventId = "log_delete_mgr_" + Date.now();
+          await setDoc(doc(db, 'tracking_events', eventId), {
+            id: eventId,
+            timestamp: serverTimestamp(),
+            eventType: 'auth',
+            subdomain: 'admin',
+            userId: auth.currentUser?.uid || 'system_manager',
+            userEmail: auth.currentUser?.email || 'admin@discountelectrical.com',
+            message: `Deleted ${isInvite ? 'Onboarding Invite' : 'Employee Profile'}: ${usr.displayName} (${usr.email})`,
+            status: 'warning'
+          });
+        } catch (innerErr) {
+          console.warn('Logging delete failed:', innerErr);
+        }
+      }
+      
+      alert('Profile deleted successfully.');
+      if (selectedUserId === usr.uid) {
+        setSelectedUserId(null);
+      }
+    } catch (err: any) {
+      console.error('Delete action failed:', err);
+      alert(`Delete operation failed: ${err.message}`);
+    }
+  };
 
   // Toggle a single permission claim
   const handleToggleClaim = async (claimKey: keyof UserClaims) => {
@@ -95,11 +193,18 @@ export default function PermissionsManager() {
         [claimKey]: !selectedUser.claims[claimKey]
       };
 
-      const userDocRef = doc(db, 'users', selectedUser.uid);
-      await updateDoc(userDocRef, {
-        claims: updatedClaims,
-        updatedAt: serverTimestamp()
-      });
+      if (selectedUser.isInvite) {
+        const inviteDocRef = doc(db, 'invites', selectedUser.uid);
+        await updateDoc(inviteDocRef, {
+          claims: updatedClaims
+        });
+      } else {
+        const userDocRef = doc(db, 'users', selectedUser.uid);
+        await updateDoc(userDocRef, {
+          claims: updatedClaims,
+          updatedAt: serverTimestamp()
+        });
+      }
       
     } catch (err: any) {
       console.error(err);
@@ -187,6 +292,7 @@ export default function PermissionsManager() {
                 ) : (
                   users.map((usr) => {
                     const isTerminated = usr.employeeProfile?.status === 'Terminated';
+                    const isPending = !!usr.isInvite;
                     return (
                       <tr 
                         key={usr.uid} 
@@ -198,6 +304,11 @@ export default function PermissionsManager() {
                             <span className={isTerminated ? 'text-slate-400 line-through' : ''}>
                               {usr.displayName}
                             </span>
+                            {isPending && (
+                              <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold font-mono bg-amber-100 text-amber-700 border border-amber-200">
+                                PENDING
+                              </span>
+                            )}
                             {isTerminated && (
                               <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold font-mono bg-red-100 text-red-750 text-red-700 border border-red-200">
                                 LF-TERMINATED
@@ -244,6 +355,15 @@ export default function PermissionsManager() {
                             >
                               <Lock className="w-3.5 h-3.5 text-amber-600" />
                               <span>Reset Password</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteUserOrInvite(usr)}
+                              className="inline-flex items-center space-x-1 text-xs font-bold text-rose-600 hover:text-rose-800 bg-rose-50 hover:bg-rose-100 px-2.5 py-1.5 rounded-lg border-none transition cursor-pointer"
+                              title="Delete user or onboarding invite"
+                            >
+                              <Trash2 className="w-3.5 h-3.5 text-rose-500" />
+                              <span>Delete</span>
                             </button>
                           </div>
                         </td>
@@ -345,7 +465,7 @@ export default function PermissionsManager() {
                           className="flex-1 inline-flex items-center justify-center space-x-1.5 text-xs font-bold text-indigo-700 bg-white hover:bg-indigo-50 border border-slate-200 hover:border-indigo-200 px-3 py-2.5 h-11 rounded-lg transition cursor-pointer active:scale-[0.98] shadow-xs font-sans"
                         >
                           <Edit className="w-3.5 h-3.5 text-indigo-600" />
-                          <span>Edit Profile</span>
+                          <span>Edit</span>
                         </button>
                         <button
                           type="button"
@@ -353,7 +473,15 @@ export default function PermissionsManager() {
                           className="flex-1 inline-flex items-center justify-center space-x-1.5 text-xs font-bold text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-200 px-3 py-2.5 h-11 rounded-lg transition cursor-pointer active:scale-[0.98] shadow-xs font-sans"
                         >
                           <Lock className="w-3.5 h-3.5 text-amber-600" />
-                          <span>Reset Password</span>
+                          <span>Reset</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteUserOrInvite(usr)}
+                          className="inline-flex items-center justify-center w-11 h-11 text-rose-600 bg-rose-50 hover:bg-rose-100 border border-rose-250 rounded-lg transition cursor-pointer active:scale-[0.98] shrink-0"
+                          title="Delete user or onboarding invite"
+                        >
+                          <Trash2 className="w-4 h-4 text-rose-500" />
                         </button>
                       </div>
                     </div>
@@ -408,7 +536,13 @@ export default function PermissionsManager() {
                   <div className="mt-4 p-3 bg-slate-50 rounded-xl border border-slate-150 space-y-2.5 text-xs text-slate-600 font-sans">
                     <div className="text-[10px] font-bold text-indigo-600 uppercase tracking-wider mb-1 flex items-center justify-between">
                       <span>Onboarding HR Record</span>
-                      <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[8px] font-bold uppercase ${selectedUser.employeeProfile.status === 'Terminated' ? 'bg-red-100 text-red-700 border border-red-200' : 'bg-emerald-100 text-emerald-700 border border-emerald-200'}`}>
+                      <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[8px] font-bold uppercase ${
+                        selectedUser.employeeProfile.status === 'Terminated' 
+                          ? 'bg-red-100 text-red-700 border border-red-200' 
+                          : selectedUser.employeeProfile.status === 'Pending'
+                            ? 'bg-amber-100 text-amber-700 border border-amber-200'
+                            : 'bg-emerald-100 text-emerald-700 border border-emerald-200'
+                      }`}>
                         {selectedUser.employeeProfile.status || 'Active'}
                       </span>
                     </div>

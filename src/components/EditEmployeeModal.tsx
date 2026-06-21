@@ -148,49 +148,68 @@ export default function EditEmployeeModal({ isOpen, onClose, onSuccess, user }: 
     setErrorMsg(null);
 
     try {
-      const userRef = doc(db, 'users', user.uid);
-      
       // Determine final claim configuration
       // Lockout Logic: Toggling Account Status to Terminated sets all claims to false
       const finalClaims = status === 'Terminated' 
         ? { admin: false, pay: false, timecard: false } 
         : claims;
 
-      // Construct up-to-date employee profile matching blueprint exactly
-      const updatedProfile: EmployeeProfile = {
-        hireDate: user.employeeProfile?.hireDate || new Date().toISOString().split('T')[0],
-        payRate: parseFloat(payRate) || 0,
-        techLevel: techLevel,
-        homeAddress: homeAddress.trim(),
-        cellPhone: cellPhone.trim(),
-        driversLicense: driversLicense.trim(),
-        photoUrl: user.employeeProfile?.photoUrl || `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(fullName)}`,
-        status: status,
-        terminationDate: status === 'Terminated' ? terminationDate : '',
-        accessStatus: accessStatus,
-        ext: {
-          ...(user.employeeProfile?.ext || {}),
-          updatedBy: primaryAuth.currentUser?.email || 'Admin Support',
-          lastEditedAt: new Date().toISOString()
+      if (user.isInvite) {
+        const inviteRef = doc(db, 'invites', user.uid);
+        await updateDoc(inviteRef, {
+          name: fullName.trim(),
+          claims: finalClaims,
+          role: techLevel, // Classification
+          payRate: parseFloat(payRate) || 0,
+          homeAddress: homeAddress.trim(),
+          cellPhone: cellPhone.trim(),
+          driversLicense: driversLicense.trim(),
+          status: 'pending',
+          ext: {
+            ...(user.employeeProfile?.ext || {}),
+            updatedBy: primaryAuth.currentUser?.email || 'Admin Support',
+            lastEditedAt: new Date().toISOString()
+          }
+        });
+      } else {
+        const userRef = doc(db, 'users', user.uid);
+        
+        // Construct up-to-date employee profile matching blueprint exactly
+        const updatedProfile: EmployeeProfile = {
+          hireDate: user.employeeProfile?.hireDate || new Date().toISOString().split('T')[0],
+          payRate: parseFloat(payRate) || 0,
+          techLevel: techLevel,
+          homeAddress: homeAddress.trim(),
+          cellPhone: cellPhone.trim(),
+          driversLicense: driversLicense.trim(),
+          photoUrl: user.employeeProfile?.photoUrl || `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(fullName)}`,
+          status: status,
+          terminationDate: status === 'Terminated' ? terminationDate : '',
+          accessStatus: accessStatus,
+          ext: {
+            ...(user.employeeProfile?.ext || {}),
+            updatedBy: primaryAuth.currentUser?.email || 'Admin Support',
+            lastEditedAt: new Date().toISOString()
+          }
+        };
+
+        await updateDoc(userRef, {
+          displayName: fullName.trim(),
+          claims: finalClaims,
+          accessStatus: accessStatus,
+          employeeProfile: updatedProfile,
+          updatedAt: serverTimestamp()
+        });
+
+        // Toggling Access Status 'on' (Active) must trigger a final activation SMS via Quo API
+        const originalAccessStatus = user.accessStatus || user.employeeProfile?.accessStatus || 'Pending';
+        if (accessStatus === 'Active' && originalAccessStatus !== 'Active') {
+          const techName = fullName.trim();
+          const techPhone = cellPhone.trim() || user.employeeProfile?.cellPhone || '';
+          const appLink = 'admin.discountelectricalservice.com';
+          console.log(`[Access Status Change] Toggled on 'Active'. Dispatching Quo activation SMS to ${techName} (${techPhone})...`);
+          await sendActivationSms(techName, techPhone, appLink);
         }
-      };
-
-      await updateDoc(userRef, {
-        displayName: fullName.trim(),
-        claims: finalClaims,
-        accessStatus: accessStatus,
-        employeeProfile: updatedProfile,
-        updatedAt: serverTimestamp()
-      });
-
-      // Toggling Access Status 'on' (Active) must trigger a final activation SMS via Quo API
-      const originalAccessStatus = user.accessStatus || user.employeeProfile?.accessStatus || 'Pending';
-      if (accessStatus === 'Active' && originalAccessStatus !== 'Active') {
-        const techName = fullName.trim();
-        const techPhone = cellPhone.trim() || user.employeeProfile?.cellPhone || '';
-        const appLink = 'admin.discountelectricalservice.com';
-        console.log(`[Access Status Change] Toggled on 'Active'. Dispatching Quo activation SMS to ${techName} (${techPhone})...`);
-        await sendActivationSms(techName, techPhone, appLink);
       }
 
       // Dispatch Telemetry events to sync log trails
@@ -203,7 +222,7 @@ export default function EditEmployeeModal({ isOpen, onClose, onSuccess, user }: 
           subdomain: 'admin',
           userId: primaryAuth.currentUser?.uid || 'system_onboard',
           userEmail: primaryAuth.currentUser?.email || 'admin@discountelectrical.com',
-          message: `Edited Employee profile: ${fullName.trim()} (${user.email}). Status=${status}. AccessStatus=${accessStatus}. Claims overridden to Admin=${finalClaims.admin}, Pay=${finalClaims.pay}, Timecard=${finalClaims.timecard}`,
+          message: `Edited Employee profile: ${fullName.trim()} (${user.isInvite ? 'Invite' : user.email}). Status=${status}. AccessStatus=${accessStatus}. Claims overridden to Admin=${finalClaims.admin}, Pay=${finalClaims.pay}, Timecard=${finalClaims.timecard}`,
           status: status === 'Terminated' ? 'warning' : 'info',
           details: JSON.stringify({
             targetUid: user.uid,
@@ -238,7 +257,7 @@ export default function EditEmployeeModal({ isOpen, onClose, onSuccess, user }: 
     setErrorMsg(null);
 
     try {
-      const userRef = doc(db, 'users', user.uid);
+      const userRef = doc(db, user.isInvite ? 'invites' : 'users', user.uid);
       await deleteDoc(userRef);
 
       // Dispatch Telemetry events to sync log trails
@@ -543,7 +562,12 @@ export default function EditEmployeeModal({ isOpen, onClose, onSuccess, user }: 
               <span>Password Security & Administration</span>
             </span>
 
-            {user.uid === primaryAuth.currentUser?.uid ? (
+            {user.isInvite ? (
+              <div className="space-y-2 p-3.5 bg-amber-50/70 border border-amber-200 rounded-xl text-xs text-amber-800 font-sans leading-relaxed">
+                <span className="font-bold block text-amber-900 mb-0.5">Credential Configuration Pending</span>
+                Password credentials and secure resets cannot be configured because this technician is still in the pending onboarding status. Once they click their SMS invitation link and register, complete password administration will be unlocked.
+              </div>
+            ) : user.uid === primaryAuth.currentUser?.uid ? (
               // Editing OWN password
               <div className="space-y-3">
                 <p className="text-xs text-slate-500 leading-relaxed font-sans">

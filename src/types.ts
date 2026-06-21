@@ -17,7 +17,7 @@ export interface EmployeeProfile {
   cellPhone: string;
   driversLicense: string;
   photoUrl?: string;
-  status?: 'Active' | 'Terminated';
+  status?: 'Pending' | 'Active' | 'Terminated';
   terminationDate?: string;
   accessStatus?: 'Pending' | 'Active' | 'Restricted';
   ext?: Record<string, any>;
@@ -32,6 +32,7 @@ export interface UserProfile {
   claims: UserClaims;
   accessStatus?: 'Pending' | 'Active' | 'Restricted';
   employeeProfile?: EmployeeProfile;
+  isInvite?: boolean;
 }
 
 export interface TrackingEvent {
