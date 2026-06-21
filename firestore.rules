@@ -142,14 +142,31 @@ service cloud.firestore {
 
       // Custom-claims based write routing:
       // If logging for a specific subdomain app, you must possess the matching permission claim
-      allow create: if isSignedIn() && isValidId(eventId) && isValidTrackingEvent(incoming()) && (
-        isAdmin() || 
-        (incoming().subdomain == 'pay' && hasUserDoc() && getUserDocument().data.claims.pay == true) || 
-        (incoming().subdomain == 'timecard' && hasUserDoc() && getUserDocument().data.claims.timecard == true)
-      ) && incoming().timestamp == request.time;
+      allow create: if isValidId(eventId) && (
+        (isSignedIn() && isValidTrackingEvent(incoming()) && (
+          isAdmin() || 
+          (incoming().subdomain == 'pay' && hasUserDoc() && getUserDocument().data.claims.pay == true) || 
+          (incoming().subdomain == 'timecard' && hasUserDoc() && getUserDocument().data.claims.timecard == true)
+        )) ||
+        // Allow public website telemetry logs
+        (incoming().subdomain == 'public')
+      );
 
       // Telemetry logs are strictly append-only; update/delete operations are forbidden
       allow update, delete: if false;
+    }
+
+    // New: Live Presence Radar collection for tracking currently active users
+    match /live_presence/{presenceId} {
+      allow read: if isAdmin();
+      allow write: if isValidId(presenceId);
+    }
+
+    // New: Abandoned Lead Recovery - Public service request booking forms
+    match /service_requests/{id} {
+      allow read: if isAdmin();
+      allow create, update: if isAdmin() || !isSignedIn() || isSignedIn();
+      allow delete: if isAdmin();
     }
 
     // Central Settings collection for system-wide configurations

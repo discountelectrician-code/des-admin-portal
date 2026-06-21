@@ -7,9 +7,10 @@ import { db } from '../firebase';
  * as the primary attempt based on target API gate feedback.
  */
 async function robustPostFetch(url: string, key: string, payload: any): Promise<Response> {
+  const warnings: string[] = [];
+
   // Strategy 1 (formerly Strategy 5): Raw header Authorization without Bearer prefix.
   // This is the primary gatekeeper for the /v1/messages endpoint.
-  console.log(`[Quo SDK] robustPostFetch: Strategy 1 (raw Authorization) for ${url}`);
   try {
     const res = await fetch(url, {
       method: 'POST',
@@ -20,10 +21,9 @@ async function robustPostFetch(url: string, key: string, payload: any): Promise<
       body: JSON.stringify(payload)
     });
     if (res.ok) return res;
-    console.warn(`[Quo SDK] Strategy 1 (raw Authorization) returned status ${res.status}`);
+    warnings.push(`Strategy 1 (raw Authorization) returned status ${res.status}`);
 
     // Strategy 2: Multi-header authorization (Bearer token and x-api-key variants)
-    console.log(`[Quo SDK] robustPostFetch: Strategy 2 (multi-headers) for ${url}`);
     const headers2 = {
       'Content-Type': 'application/json',
       'Authorization': `Bearer ${key}`,
@@ -37,44 +37,42 @@ async function robustPostFetch(url: string, key: string, payload: any): Promise<
       body: JSON.stringify(payload)
     });
     if (res2.ok) return res2;
-    console.warn(`[Quo SDK] Strategy 2 (multi-headers) returned status ${res2.status}`);
+    warnings.push(`Strategy 2 (multi-headers) returned status ${res2.status}`);
 
     const separator = url.includes('?') ? '&' : '?';
 
     // Strategy 3: Query parameter /?api_key=
-    console.log(`[Quo SDK] robustPostFetch: Strategy 3 (?api_key=) for ${url}`);
     const res3 = await fetch(`${url}${separator}api_key=${key}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
     });
     if (res3.ok) return res3;
-    console.warn(`[Quo SDK] Strategy 3 returned status ${res3.status}`);
+    warnings.push(`Strategy 3 returned status ${res3.status}`);
 
     // Strategy 4: Query parameter /?key=
-    console.log(`[Quo SDK] robustPostFetch: Strategy 4 (?key=) for ${url}`);
     const res4 = await fetch(`${url}${separator}key=${key}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
     });
     if (res4.ok) return res4;
-    console.warn(`[Quo SDK] Strategy 4 returned status ${res4.status}`);
+    warnings.push(`Strategy 4 returned status ${res4.status}`);
 
     // Strategy 5: Query parameter /?apiKey=
-    console.log(`[Quo SDK] robustPostFetch: Strategy 5 (?apiKey=) for ${url}`);
     const res5 = await fetch(`${url}${separator}apiKey=${key}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
     });
     if (res5.ok) return res5;
-    console.warn(`[Quo SDK] Strategy 5 returned status ${res5.status}`);
+    warnings.push(`Strategy 5 returned status ${res5.status}`);
 
-    // Return the primary response for diagnostics if all fail
+    // Only log if all strategies within robustPostFetch fail
+    console.warn(`[Quo SDK] All authorization strategies failed for ${url}:\n  - ${warnings.join('\n  - ')}`);
     return res;
   } catch (err) {
-    console.error('[Quo SDK] robustPostFetch catch exception:', err);
+    // Collect error but only throw or print when completely failing the wrapper flow
     throw err;
   }
 }
@@ -175,52 +173,32 @@ export async function sendOnboardingSms(techName: string, toNumber: string, uniq
 
     let success = false;
 
-    // Retry Strategy A: Resource-centric phone-numbers message channel (Preferred Quo API Path)
-    if (fromNumberId) {
-      try {
-        console.log(`[Onboarding SMS] Attempting Strategy A: POST /v1/phone-numbers/${fromNumberId}/messages...`);
-        const lineRes = await robustPostFetch(`https://api.quo.com/v1/phone-numbers/${fromNumberId}/messages`, apiKey, {
-          to: formattedTo,
-          content: bodyText
-        });
-
-        console.log(`[Onboarding SMS] Strategy A status: ${lineRes.status}`);
-        if (lineRes.ok) {
-          success = true;
-        }
-      } catch (lineErr) {
-        console.warn('[Onboarding SMS] Strategy A exception occurred:', lineErr);
+    // Retry Strategy A: Central Messages Endpoint (Prioritized as reliable primary channel)
+    try {
+      console.log(`[Onboarding SMS] Attempting primary endpoint: POST /v1/messages...`);
+      const msgRes = await robustPostFetch(`https://api.quo.com/v1/messages`, apiKey, messagePayload);
+      if (msgRes.ok) {
+        success = true;
       }
+    } catch (msgErr) {
+      // Muted - Only log final aggregated failure across all endpoints
     }
 
-    // Retry Strategy B: Central Messages Endpoint
+    // Retry Strategy B: Alternate SMS Endpoint (Secondary backup channel)
     if (!success) {
       try {
-        console.log(`[Onboarding SMS] Attempting Strategy B: POST /v1/messages...`);
-        const msgRes = await robustPostFetch(`https://api.quo.com/v1/messages`, apiKey, messagePayload);
-
-        console.log(`[Onboarding SMS] Strategy B status: ${msgRes.status}`);
-        if (msgRes.ok) {
-          success = true;
-        }
-      } catch (msgErr) {
-        console.warn('[Onboarding SMS] Strategy B exception occurred:', msgErr);
-      }
-    }
-
-    // Retry Strategy C: Alternate SMS Endpoint
-    if (!success) {
-      try {
-        console.log(`[Onboarding SMS] Attempting Strategy C: POST /v1/sms...`);
+        console.log(`[Onboarding SMS] Attempting secondary endpoint: POST /v1/sms...`);
         const smsRes = await robustPostFetch(`https://api.quo.com/v1/sms`, apiKey, messagePayload);
-
-        console.log(`[Onboarding SMS] Strategy C status: ${smsRes.status}`);
         if (smsRes.ok) {
           success = true;
         }
       } catch (smsErr) {
-        console.error('[Onboarding SMS] Strategy C exception occurred:', smsErr);
+        // Muted - Only log final aggregated failure across all endpoints
       }
+    }
+
+    if (!success) {
+      console.error('[Onboarding SMS] Dispatch failed across all authorized endpoints.');
     }
 
     return success;
@@ -321,52 +299,32 @@ export async function sendActivationSms(techName: string, toNumber: string, appL
 
     let success = false;
 
-    // Retry Strategy A: Resource-centric phone-numbers message channel (Preferred Quo API Path)
-    if (fromNumberId) {
-      try {
-        console.log(`[Activation SMS] Attempting Strategy A: POST /v1/phone-numbers/${fromNumberId}/messages...`);
-        const lineRes = await robustPostFetch(`https://api.quo.com/v1/phone-numbers/${fromNumberId}/messages`, apiKey, {
-          to: formattedTo,
-          content: bodyText
-        });
-
-        console.log(`[Activation SMS] Strategy A status: ${lineRes.status}`);
-        if (lineRes.ok) {
-          success = true;
-        }
-      } catch (lineErr) {
-        console.warn('[Activation SMS] Strategy A exception occurred:', lineErr);
+    // Retry Strategy A: Central Messages Endpoint (Prioritized as reliable primary channel)
+    try {
+      console.log(`[Activation SMS] Attempting primary endpoint: POST /v1/messages...`);
+      const msgRes = await robustPostFetch(`https://api.quo.com/v1/messages`, apiKey, messagePayload);
+      if (msgRes.ok) {
+        success = true;
       }
+    } catch (msgErr) {
+      // Muted - Only log final aggregated failure across all endpoints
     }
 
-    // Retry Strategy B: Central Messages Endpoint
+    // Retry Strategy B: Alternate SMS Endpoint (Secondary backup channel)
     if (!success) {
       try {
-        console.log(`[Activation SMS] Attempting Strategy B: POST /v1/messages...`);
-        const msgRes = await robustPostFetch(`https://api.quo.com/v1/messages`, apiKey, messagePayload);
-
-        console.log(`[Activation SMS] Strategy B status: ${msgRes.status}`);
-        if (msgRes.ok) {
-          success = true;
-        }
-      } catch (msgErr) {
-        console.warn('[Activation SMS] Strategy B exception occurred:', msgErr);
-      }
-    }
-
-    // Retry Strategy C: Alternate SMS Endpoint
-    if (!success) {
-      try {
-        console.log(`[Activation SMS] Attempting Strategy C: POST /v1/sms...`);
+        console.log(`[Activation SMS] Attempting secondary endpoint: POST /v1/sms...`);
         const smsRes = await robustPostFetch(`https://api.quo.com/v1/sms`, apiKey, messagePayload);
-
-        console.log(`[Activation SMS] Strategy C status: ${smsRes.status}`);
         if (smsRes.ok) {
           success = true;
         }
       } catch (smsErr) {
-        console.error('[Activation SMS] Strategy C exception occurred:', smsErr);
+        // Muted - Only log final aggregated failure across all endpoints
       }
+    }
+
+    if (!success) {
+      console.error('[Activation SMS] Dispatch failed across all authorized endpoints.');
     }
 
     return success;
@@ -375,3 +333,250 @@ export async function sendActivationSms(techName: string, toNumber: string, appL
     return false;
   }
 }
+
+/**
+ * Generic SMS helper utilizing the active Quo API and Main Office Customer Texting Line.
+ */
+export async function sendSms(toNumber: string, bodyText: string): Promise<boolean> {
+  try {
+    console.log(`[Quo SMS Helper] Initiating generic SMS dispatch to ${toNumber}...`);
+
+    // 1. Fetch Quo config for custom API key
+    let apiKey = 'o10vIQ4KoW0RRNxO5ydVfdkYYg9IxVyn'; // Dynamic fallback key
+    try {
+      const configSnap = await getDoc(doc(db, 'settings', 'quo_config'));
+      if (configSnap.exists()) {
+        const data = configSnap.data();
+        if (data.apiKey && data.apiKey.trim()) {
+          apiKey = data.apiKey.trim();
+        }
+      }
+    } catch (apiErr) {
+      console.warn('[Quo SMS] Failed to query quo_config settings:', apiErr);
+    }
+
+    // 2. Fetch the numbers registry and communications routing config
+    let fromNumberId = '';
+    let fromNumber = '';
+    
+    try {
+      const [registrySnap, commSnap] = await Promise.all([
+        getDoc(doc(db, 'settings', 'quo_number_registry')),
+        getDoc(doc(db, 'settings', 'communications_config'))
+      ]);
+
+      const numbers = registrySnap.exists() ? (registrySnap.data().numbers || []) : [];
+
+      if (commSnap.exists()) {
+        const commData = commSnap.data();
+        if (commData.main_office && commData.main_office.customerNumberId) {
+          // STRICT RULE: Must use the Customer Texting Line for outbound!
+          fromNumberId = commData.main_office.customerNumberId;
+        }
+      }
+
+      // Find the specific office number object in the synced registry
+      let selectedNum = numbers.find((n: any) => n.id === fromNumberId || (n.data && n.data.id === fromNumberId));
+
+      if (!selectedNum) {
+        selectedNum = numbers.find((n: any) => {
+          const moniker = (n.name || n.friendlyName || n.label || '').toLowerCase();
+          return moniker.includes('customer') || moniker.includes('texting') || moniker.includes('client');
+        });
+      }
+
+      if (!selectedNum) {
+        selectedNum = numbers.find((n: any) => {
+          const moniker = (n.name || n.friendlyName || n.label || '').toLowerCase();
+          return moniker.includes('office') || moniker.includes('main');
+        });
+      }
+
+      if (!selectedNum && numbers.length > 0) {
+        selectedNum = numbers[0];
+      }
+
+      if (selectedNum) {
+        const payloadData = selectedNum.data || selectedNum;
+        fromNumber = payloadData.formattedNumber || payloadData.phoneNumber || payloadData.number || payloadData.phone || '';
+        if (!fromNumberId) {
+          fromNumberId = selectedNum.id || payloadData.id || '';
+        }
+      }
+    } catch (storeErr) {
+      console.warn('[Quo SMS] Failed loading telemetry configurations for fromNumber:', storeErr);
+    }
+
+    const digits = toNumber.replace(/\D/g, '');
+    const normalizedDigits = digits.startsWith('1') && digits.length === 11 ? digits.slice(1) : digits;
+    const formattedTo = ['+1' + normalizedDigits];
+
+    console.log(`[Quo SMS] Dispatch details: FromId=${fromNumberId}, FromNum=${fromNumber}, To=${formattedTo[0]}, Msg="${bodyText}"`);
+
+    const messagePayload = {
+      from: fromNumberId || undefined,
+      to: formattedTo,
+      content: bodyText
+    };
+
+    let success = false;
+
+    // Retry Strategy A: Central Messages Endpoint (Prioritized as reliable primary channel)
+    try {
+      console.log(`[Quo SMS] Attempting primary endpoint: POST /v1/messages...`);
+      const msgRes = await robustPostFetch(`https://api.quo.com/v1/messages`, apiKey, messagePayload);
+      if (msgRes.ok) {
+        success = true;
+      }
+    } catch (msgErr) {
+      // Muted - Only log final aggregated failure across all endpoints
+    }
+
+    // Retry Strategy B: Alternate SMS Endpoint (Secondary backup channel)
+    if (!success) {
+      try {
+        console.log(`[Quo SMS] Attempting secondary endpoint: POST /v1/sms...`);
+        const smsRes = await robustPostFetch(`https://api.quo.com/v1/sms`, apiKey, messagePayload);
+        if (smsRes.ok) {
+          success = true;
+        }
+      } catch (smsErr) {
+        // Muted - Only log final aggregated failure across all endpoints
+      }
+    }
+
+    if (!success) {
+      console.error('[Quo SMS] Dispatch failed across all authorized endpoints.');
+    }
+
+    return success;
+  } catch (err) {
+    console.error('[Quo SMS] Master handler failed to complete dispatch execution:', err);
+    return false;
+  }
+}
+
+/**
+ * Sends a lead recovery SMS via Quo API with E.164 target array structure and matching payload contents.
+ * Strictly maps target phone as an array under the to property, and body content under the content property.
+ */
+export async function sendLeadRecoverySms(phoneNumber: string, messageString: string): Promise<boolean> {
+  try {
+    console.log(`[Lead Recovery SMS] Initiating SMS dispatch to ${phoneNumber}...`);
+
+    // 1. Fetch Quo config for custom API key
+    let apiKey = 'o10vIQ4KoW0RRNxO5ydVfdkYYg9IxVyn'; // Dynamic fallback key
+    try {
+      const configSnap = await getDoc(doc(db, 'settings', 'quo_config'));
+      if (configSnap.exists()) {
+        const data = configSnap.data();
+        if (data.apiKey && data.apiKey.trim()) {
+          apiKey = data.apiKey.trim();
+        }
+      }
+    } catch (apiErr) {
+      console.warn('[Lead Recovery SMS] Failed to query quo_config settings:', apiErr);
+    }
+
+    // 2. Fetch the numbers registry and communications routing config
+    let fromNumberId = '';
+    let fromNumber = '';
+    
+    try {
+      const [registrySnap, commSnap] = await Promise.all([
+        getDoc(doc(db, 'settings', 'quo_number_registry')),
+        getDoc(doc(db, 'settings', 'communications_config'))
+      ]);
+
+      const numbers = registrySnap.exists() ? (registrySnap.data().numbers || []) : [];
+
+      if (commSnap.exists()) {
+        const commData = commSnap.data();
+        if (commData.main_office && commData.main_office.customerNumberId) {
+          // STRICT RULE: Must use the Customer Texting Line as the from property
+          fromNumberId = commData.main_office.customerNumberId;
+        }
+      }
+
+      let selectedNum = numbers.find((n: any) => n.id === fromNumberId || (n.data && n.data.id === fromNumberId));
+
+      if (!selectedNum) {
+        selectedNum = numbers.find((n: any) => {
+          const moniker = (n.name || n.friendlyName || n.label || '').toLowerCase();
+          return moniker.includes('customer') || moniker.includes('texting') || moniker.includes('client');
+        });
+      }
+
+      if (!selectedNum) {
+        selectedNum = numbers.find((n: any) => {
+          const moniker = (n.name || n.friendlyName || n.label || '').toLowerCase();
+          return moniker.includes('office') || moniker.includes('main');
+        });
+      }
+
+      if (!selectedNum && numbers.length > 0) {
+        selectedNum = numbers[0];
+      }
+
+      if (selectedNum) {
+        const payloadData = selectedNum.data || selectedNum;
+        fromNumber = payloadData.formattedNumber || payloadData.phoneNumber || payloadData.number || payloadData.phone || '';
+        if (!fromNumberId) {
+          fromNumberId = selectedNum.id || payloadData.id || '';
+        }
+      }
+    } catch (storeErr) {
+      console.warn('[Lead Recovery SMS] Failed loading telemetry configurations for fromNumber:', storeErr);
+    }
+
+    // Strictly map the destination number as an array: to: ['+1' + phoneNumber.replace(/\D/g, '')]
+    const rawPhoneNumber = phoneNumber.replace(/\D/g, '');
+    const cleanPhoneNumber = rawPhoneNumber.startsWith('1') && rawPhoneNumber.length === 11 ? rawPhoneNumber.slice(1) : rawPhoneNumber;
+    const formattedTo = ['+1' + cleanPhoneNumber];
+
+    console.log(`[Lead Recovery SMS] Dispatch details: FromId=${fromNumberId}, FromNum=${fromNumber}, To=${formattedTo[0]}, Msg="${messageString}"`);
+
+    // Strictly match the payload contract
+    const messagePayload = {
+      from: fromNumberId || undefined,
+      to: formattedTo,
+      content: messageString
+    };
+
+    let success = false;
+
+    // Retry Strategy A: Central Messages Endpoint (Prioritized as reliable primary channel)
+    try {
+      console.log(`[Lead Recovery SMS] Attempting primary endpoint: POST /v1/messages...`);
+      const msgRes = await robustPostFetch(`https://api.quo.com/v1/messages`, apiKey, messagePayload);
+      if (msgRes.ok) {
+        success = true;
+      }
+    } catch (msgErr) {
+      // Muted - Only log final aggregated failure across all endpoints
+    }
+
+    // Retry Strategy B: Alternate SMS Endpoint (Secondary backup channel)
+    if (!success) {
+      try {
+        console.log(`[Lead Recovery SMS] Attempting secondary endpoint: POST /v1/sms...`);
+        const smsRes = await robustPostFetch(`https://api.quo.com/v1/sms`, apiKey, messagePayload);
+        if (smsRes.ok) {
+          success = true;
+        }
+      } catch (smsErr) {
+        // Muted - Only log final aggregated failure across all endpoints
+      }
+    }
+
+    if (!success) {
+      console.error('[Lead Recovery SMS] Dispatch failed across all authorized endpoints.');
+    }
+
+    return success;
+  } catch (err) {
+    console.error('[Lead Recovery SMS] Master handler failed to complete dispatch execution:', err);
+    return false;
+  }
+}
+

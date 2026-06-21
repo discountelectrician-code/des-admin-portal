@@ -49,13 +49,14 @@ import PermissionsManager from './components/PermissionsManager';
 import PaymentSettings from './components/PaymentSettings';
 import QuoRoutingConfig from './components/QuoRoutingConfig';
 import OnboardingPage from './components/OnboardingPage';
+import LeadRecovery from './components/LeadRecovery';
 
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const [isInitializing, setIsInitializing] = useState(true);
   const [userTechLevel, setUserTechLevel] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'telemetry' | 'permissions' | 'payment' | 'quo_routing'>('telemetry');
+  const [activeTab, setActiveTab] = useState<'telemetry' | 'permissions' | 'payment' | 'quo_routing' | 'lead_recovery'>('telemetry');
 
   // Secure Single-Page routing path tracking
   const [currentPath, setCurrentPath] = useState(window.location.pathname.toLowerCase());
@@ -541,6 +542,8 @@ export default function App() {
             <PermissionsManager />
           ) : activeTab === 'payment' ? (
             <PaymentSettings />
+          ) : activeTab === 'lead_recovery' ? (
+            <LeadRecovery />
           ) : (
             <QuoRoutingConfig />
           )}

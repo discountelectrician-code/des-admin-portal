@@ -18,12 +18,13 @@ import {
   User as UserIcon,
   HelpCircle,
   CreditCard,
-  Phone
+  Phone,
+  MessageSquare
 } from 'lucide-react';
 
 interface NavbarProps {
-  activeTab: 'telemetry' | 'permissions' | 'payment' | 'quo_routing';
-  setActiveTab: (tab: 'telemetry' | 'permissions' | 'payment' | 'quo_routing') => void;
+  activeTab: 'telemetry' | 'permissions' | 'payment' | 'quo_routing' | 'lead_recovery';
+  setActiveTab: (tab: 'telemetry' | 'permissions' | 'payment' | 'quo_routing' | 'lead_recovery') => void;
   currentUser: User | null;
 }
 
@@ -139,6 +140,18 @@ export default function Navbar({ activeTab, setActiveTab, currentUser }: NavbarP
                 <span>Payment Settings</span>
               </button>
 
+              <button
+                onClick={() => setActiveTab('lead_recovery')}
+                className={`flex items-center space-x-2 px-4 py-2 rounded-lg font-semibold transition ${
+                  activeTab === 'lead_recovery' 
+                    ? 'bg-slate-800 text-amber-400 border border-slate-700 shadow-sm' 
+                    : 'text-slate-350 hover:text-white hover:bg-slate-800/40'
+                }`}
+              >
+                <MessageSquare className="w-4 h-4" />
+                <span>Lead Recovery</span>
+              </button>
+
               {activeClaims.admin && (
                 <button
                   onClick={() => setActiveTab('quo_routing')}
@@ -217,6 +230,15 @@ export default function Navbar({ activeTab, setActiveTab, currentUser }: NavbarP
             >
               <CreditCard className="w-5 h-5" />
               <span className="text-[9px] tracking-tight text-center truncate w-full">Payment</span>
+            </button>
+            <button
+              onClick={() => setActiveTab('lead_recovery')}
+              className={`flex flex-col items-center justify-center space-y-1 flex-1 transition cursor-pointer border-none bg-transparent ${
+                activeTab === 'lead_recovery' ? 'text-amber-400 font-bold' : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <MessageSquare className="w-5 h-5" />
+              <span className="text-[9px] tracking-tight text-center truncate w-full">Recovery</span>
             </button>
             {activeClaims.admin && (
               <button

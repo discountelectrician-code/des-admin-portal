@@ -88,6 +88,23 @@
         "claimedByUid": { "type": "string" }
       },
       "required": ["name", "cellPhone", "status", "createdAt"]
+    },
+    "service_request": {
+      "title": "Service Request Lead",
+      "description": "Represents public electrical service request lead and booking drafts.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "firstName": { "type": "string" },
+        "lastName": { "type": "string" },
+        "phone": { "type": "string" },
+        "email": { "type": "string" },
+        "status": { "type": "string", "enum": ["draft", "abandoned", "confirmed"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "serviceDetails": { "type": "string" },
+        "techAssignee": { "type": "string" }
+      },
+      "required": ["firstName", "phone", "email", "status"]
     }
   },
   "firestore": {
@@ -106,6 +123,10 @@
     "invites/{inviteId}": {
       "schema": "invite",
       "description": "Stores secure pending and claimed technician onboarding invitation profiles."
+    },
+    "service_requests/{requestId}": {
+      "schema": "service_request",
+      "description": "Stores service booking requests showing complete or draft/abandoned status leads."
     }
   }
 }
