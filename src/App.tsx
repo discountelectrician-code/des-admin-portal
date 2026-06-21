@@ -17,6 +17,7 @@ import {
 import { doc, setDoc, getDoc, serverTimestamp } from 'firebase/firestore';
 import { auth, db } from './firebase';
 import WaitingForApprovalPage from './components/WaitingForApprovalPage';
+import WaitingRoomPage from './components/WaitingRoomPage';
 import { PaySubdomainPortal, TimecardSubdomainPortal } from './components/SubdomainPortals';
 import { 
   Zap, 
@@ -54,6 +55,19 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'telemetry' | 'permissions' | 'payment' | 'quo_routing'>('telemetry');
 
+  // Secure Single-Page routing path tracking
+  const [currentPath, setCurrentPath] = useState(window.location.pathname.toLowerCase());
+
+  useEffect(() => {
+    const handleLocationChange = () => {
+      setCurrentPath(window.location.pathname.toLowerCase());
+    };
+    window.addEventListener('popstate', handleLocationChange);
+    return () => {
+      window.removeEventListener('popstate', handleLocationChange);
+    };
+  }, []);
+
   // Secure Onboarding route detection states (Phase 3)
   const [isOnboarding, setIsOnboarding] = useState(false);
   const [inviteId, setInviteId] = useState<string | null>(null);
@@ -61,12 +75,15 @@ export default function App() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const id = params.get('inviteId');
-    const isPathOnboard = window.location.pathname.toLowerCase() === '/onboard' || window.location.pathname.toLowerCase().startsWith('/onboard');
+    const isPathOnboard = currentPath === '/onboard' || currentPath.startsWith('/onboard');
     if (id || isPathOnboard) {
       setIsOnboarding(true);
       setInviteId(id || '');
+    } else {
+      setIsOnboarding(false);
+      setInviteId(null);
     }
-  }, []);
+  }, [currentPath]);
 
   // User details & claims state loaded from Firestore
   const [userClaims, setUserClaims] = useState<{ admin: boolean; pay: boolean; timecard: boolean }>({
@@ -298,6 +315,12 @@ export default function App() {
     );
   }
 
+  // Intercept for Welcome / Pending Approval Page (Waiting Room) - Public route
+  const isPathWelcome = currentPath === '/welcome' || currentPath === '/pending-approval';
+  if (isPathWelcome) {
+    return <WaitingRoomPage />;
+  }
+
   // Intercept for Secure Automated Onboarding Page (Phase 3)
   if (isOnboarding) {
     return (
@@ -306,9 +329,27 @@ export default function App() {
         onComplete={() => {
           setIsOnboarding(false);
           setInviteId(null);
+          window.location.href = '/welcome';
         }} 
       />
     );
+  }
+
+  // Strict Guarding on Admin Portal (Central Router Root Guard)
+  // If we are evaluating the 'admin' portal namespace, check if user lacks Admin claim OR isn't Active.
+  // Instantly blocks standard technicians and redirects them to the Waiting Room.
+  const isSeekingAdmin = hostDomain === 'admin';
+  const hasAdminRights = userClaims.admin || user?.email?.toLowerCase() === 'discountelectrician@gmail.com';
+  const isProfileActive = currentUserAccessStatus === 'Active';
+
+  if (user && isSeekingAdmin && (!hasAdminRights || !isProfileActive)) {
+    if (currentPath !== '/welcome' && currentPath !== '/pending-approval') {
+      window.history.pushState({}, '', '/welcome');
+      setTimeout(() => {
+        setCurrentPath('/welcome');
+      }, 0);
+    }
+    return <WaitingRoomPage />;
   }
 
   // Enforcement Checks: If user is logged in on a subdomain and is not Active, deny and show WaitingForApprovalPage

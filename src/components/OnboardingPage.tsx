@@ -64,8 +64,7 @@ export default function OnboardingPage({ inviteId, onComplete }: OnboardingPageP
 
         // 1. Check if claimed
         if (data.status === 'claimed') {
-          setValidationError('This onboarding ticket has already been claimed and processed.');
-          setLoading(false);
+          window.location.href = '/welcome';
           return;
         }
 
@@ -154,7 +153,8 @@ export default function OnboardingPage({ inviteId, onComplete }: OnboardingPageP
         console.warn('Logging alert failed:', logErr);
       }
 
-      onComplete();
+      // Redirect strictly to the public waiting room page
+      window.location.href = '/welcome';
     } catch (err: any) {
       console.error('[Onboard Finalize] Failed to write database entries:', err);
       setAuthError(`Authentication was successful, but database profile creation failed: ${err.message}`);
