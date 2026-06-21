@@ -39,8 +39,8 @@ export interface UserProfile {
 export interface TrackingEvent {
   id: string;
   timestamp: any; // Firestore Timestamp Or Date
-  eventType: 'auth' | 'payment' | 'timecard' | 'system' | 'error';
-  subdomain: 'admin' | 'pay' | 'timecard';
+  eventType: 'auth' | 'payment' | 'timecard' | 'system' | 'error' | 'page_load' | string;
+  subdomain: 'admin' | 'pay' | 'timecard' | 'public' | string;
   userId: string;
   userEmail: string;
   message: string;
