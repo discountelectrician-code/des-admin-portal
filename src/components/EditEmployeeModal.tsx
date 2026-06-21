@@ -8,6 +8,7 @@ import { doc, updateDoc, serverTimestamp, setDoc, deleteDoc } from 'firebase/fir
 import { updatePassword, sendPasswordResetEmail } from 'firebase/auth';
 import { db, auth as primaryAuth } from '../firebase';
 import { UserProfile, EmployeeProfile, UserClaims } from '../types';
+import { sendActivationSms } from '../utils/sms';
 import { 
   X, 
   User, 
@@ -51,6 +52,7 @@ export default function EditEmployeeModal({ isOpen, onClose, onSuccess, user }: 
   // Status and Termination
   const [status, setStatus] = useState<'Active' | 'Terminated'>('Active');
   const [terminationDate, setTerminationDate] = useState('');
+  const [accessStatus, setAccessStatus] = useState<'Pending' | 'Active' | 'Restricted'>('Pending');
 
   // Access toggle claims inside edit modal for total administrator lifecycle control
   const [claims, setClaims] = useState<UserClaims>({
@@ -88,6 +90,7 @@ export default function EditEmployeeModal({ isOpen, onClose, onSuccess, user }: 
         setDriversLicense(user.employeeProfile.driversLicense || '');
         setStatus(user.employeeProfile.status || 'Active');
         setTerminationDate(user.employeeProfile.terminationDate || '');
+        setAccessStatus(user.accessStatus || user.employeeProfile.accessStatus || 'Pending');
       } else {
         setPayRate('');
         setTechLevel('Apprentice');
@@ -96,6 +99,7 @@ export default function EditEmployeeModal({ isOpen, onClose, onSuccess, user }: 
         setDriversLicense('');
         setStatus('Active');
         setTerminationDate('');
+        setAccessStatus(user.accessStatus || 'Pending');
       }
       setErrorMsg(null);
       setNewPassword('');
@@ -130,8 +134,8 @@ export default function EditEmployeeModal({ isOpen, onClose, onSuccess, user }: 
     e.preventDefault();
     if (isSaving) return;
 
-    if (!fullName.trim() || !payRate || !cellPhone || !driversLicense) {
-      setErrorMsg('Please pre-populate all required configuration values.');
+    if (!fullName.trim()) {
+      setErrorMsg('Full Name is required.');
       return;
     }
 
@@ -155,7 +159,7 @@ export default function EditEmployeeModal({ isOpen, onClose, onSuccess, user }: 
       // Construct up-to-date employee profile matching blueprint exactly
       const updatedProfile: EmployeeProfile = {
         hireDate: user.employeeProfile?.hireDate || new Date().toISOString().split('T')[0],
-        payRate: parseFloat(payRate),
+        payRate: parseFloat(payRate) || 0,
         techLevel: techLevel,
         homeAddress: homeAddress.trim(),
         cellPhone: cellPhone.trim(),
@@ -163,6 +167,7 @@ export default function EditEmployeeModal({ isOpen, onClose, onSuccess, user }: 
         photoUrl: user.employeeProfile?.photoUrl || `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(fullName)}`,
         status: status,
         terminationDate: status === 'Terminated' ? terminationDate : '',
+        accessStatus: accessStatus,
         ext: {
           ...(user.employeeProfile?.ext || {}),
           updatedBy: primaryAuth.currentUser?.email || 'Admin Support',
@@ -173,9 +178,20 @@ export default function EditEmployeeModal({ isOpen, onClose, onSuccess, user }: 
       await updateDoc(userRef, {
         displayName: fullName.trim(),
         claims: finalClaims,
+        accessStatus: accessStatus,
         employeeProfile: updatedProfile,
         updatedAt: serverTimestamp()
       });
+
+      // Toggling Access Status 'on' (Active) must trigger a final activation SMS via Quo API
+      const originalAccessStatus = user.accessStatus || user.employeeProfile?.accessStatus || 'Pending';
+      if (accessStatus === 'Active' && originalAccessStatus !== 'Active') {
+        const techName = fullName.trim();
+        const techPhone = cellPhone.trim() || user.employeeProfile?.cellPhone || '';
+        const appLink = 'admin.discountelectricalservice.com';
+        console.log(`[Access Status Change] Toggled on 'Active'. Dispatching Quo activation SMS to ${techName} (${techPhone})...`);
+        await sendActivationSms(techName, techPhone, appLink);
+      }
 
       // Dispatch Telemetry events to sync log trails
       try {
@@ -187,11 +203,12 @@ export default function EditEmployeeModal({ isOpen, onClose, onSuccess, user }: 
           subdomain: 'admin',
           userId: primaryAuth.currentUser?.uid || 'system_onboard',
           userEmail: primaryAuth.currentUser?.email || 'admin@discountelectrical.com',
-          message: `Edited Employee profile: ${fullName.trim()} (${user.email}). Status=${status}. Claims overridden to Admin=${finalClaims.admin}, Pay=${finalClaims.pay}, Timecard=${finalClaims.timecard}`,
+          message: `Edited Employee profile: ${fullName.trim()} (${user.email}). Status=${status}. AccessStatus=${accessStatus}. Claims overridden to Admin=${finalClaims.admin}, Pay=${finalClaims.pay}, Timecard=${finalClaims.timecard}`,
           status: status === 'Terminated' ? 'warning' : 'info',
           details: JSON.stringify({
             targetUid: user.uid,
             status,
+            accessStatus,
             terminationDate: status === 'Terminated' ? terminationDate : 'N/A',
             claimsGranted: finalClaims
           })
@@ -480,6 +497,43 @@ export default function EditEmployeeModal({ isOpen, onClose, onSuccess, user }: 
                 </div>
               </div>
             )}
+
+            {/* Access Status Toggle */}
+            <div className="space-y-2 pt-3 border-t border-slate-200">
+              <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider flex items-center space-x-1.5">
+                <Shield className="w-3.5 h-3.5 text-indigo-500" />
+                <span>Access Status Control</span>
+              </span>
+              <p className="text-[10px] text-slate-500 pb-1 leading-relaxed font-sans">
+                Assign technician status in the central registry. Toggling this 'on' (Active) automatically alerts the technician via welcome SMS. Restricted status immediately blocks access.
+              </p>
+              <div className="flex bg-white rounded-xl p-1 border border-slate-200 max-w-md shadow-xs">
+                <button
+                  type="button"
+                  onClick={() => setAccessStatus('Pending')}
+                  className={`flex-1 flex items-center justify-center space-x-1.5 px-3 py-2.5 h-10 rounded-lg text-xs font-bold transition-all cursor-pointer ${accessStatus === 'Pending' ? 'bg-amber-500 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-100 bg-transparent border-none'}`}
+                >
+                  <span className={`w-2 h-2 rounded-full border ${accessStatus === 'Pending' ? 'bg-white border-white' : 'bg-amber-500 border-amber-600'}`}></span>
+                  <span>Pending</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAccessStatus('Active')}
+                  className={`flex-1 flex items-center justify-center space-x-1.5 px-3 py-2.5 h-10 rounded-lg text-xs font-bold transition-all cursor-pointer ${accessStatus === 'Active' ? 'bg-indigo-600 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-100 bg-transparent border-none'}`}
+                >
+                  <span className={`w-2 h-2 rounded-full border ${accessStatus === 'Active' ? 'bg-white border-white' : 'bg-emerald-500 border-emerald-600'}`}></span>
+                  <span>Active</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAccessStatus('Restricted')}
+                  className={`flex-1 flex items-center justify-center space-x-1.5 px-3 py-2.5 h-10 rounded-lg text-xs font-bold transition-all cursor-pointer ${accessStatus === 'Restricted' ? 'bg-rose-600 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-100 bg-transparent border-none'}`}
+                >
+                  <span className={`w-2 h-2 rounded-full border ${accessStatus === 'Restricted' ? 'bg-white border-white' : 'bg-rose-500 border-rose-600'}`}></span>
+                  <span>Restricted</span>
+                </button>
+              </div>
+            </div>
           </div>
 
           {/* Password Security Administration Block */}

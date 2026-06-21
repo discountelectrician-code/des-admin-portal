@@ -17,12 +17,13 @@ import {
   ShieldCheck, 
   User as UserIcon,
   HelpCircle,
-  CreditCard
+  CreditCard,
+  Phone
 } from 'lucide-react';
 
 interface NavbarProps {
-  activeTab: 'telemetry' | 'permissions' | 'payment';
-  setActiveTab: (tab: 'telemetry' | 'permissions' | 'payment') => void;
+  activeTab: 'telemetry' | 'permissions' | 'payment' | 'quo_routing';
+  setActiveTab: (tab: 'telemetry' | 'permissions' | 'payment' | 'quo_routing') => void;
   currentUser: User | null;
 }
 
@@ -137,6 +138,20 @@ export default function Navbar({ activeTab, setActiveTab, currentUser }: NavbarP
                 <CreditCard className="w-4 h-4" />
                 <span>Payment Settings</span>
               </button>
+
+              {activeClaims.admin && (
+                <button
+                  onClick={() => setActiveTab('quo_routing')}
+                  className={`flex items-center space-x-2 px-4 py-2 rounded-lg font-semibold transition ${
+                    activeTab === 'quo_routing' 
+                      ? 'bg-slate-800 text-amber-400 border border-slate-700 shadow-sm' 
+                      : 'text-slate-350 hover:text-white hover:bg-slate-800/40'
+                  }`}
+                >
+                  <Phone className="w-4 h-4" />
+                  <span>Quo Outbound Routing</span>
+                </button>
+              )}
             </nav>
           )}
 
@@ -211,6 +226,17 @@ export default function Navbar({ activeTab, setActiveTab, currentUser }: NavbarP
               <CreditCard className="w-3.5 h-3.5" />
               <span>Payment</span>
             </button>
+            {activeClaims.admin && (
+              <button
+                onClick={() => setActiveTab('quo_routing')}
+                className={`flex items-center space-x-1 px-3 py-1.5 rounded-md ${
+                  activeTab === 'quo_routing' ? 'bg-slate-800 text-amber-400' : 'text-slate-400'
+                }`}
+              >
+                <Phone className="w-3.5 h-3.5" />
+                <span>Quo Routing</span>
+              </button>
+            )}
           </div>
         )}
 

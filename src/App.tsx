@@ -16,6 +16,8 @@ import {
 } from 'firebase/auth';
 import { doc, setDoc, getDoc, serverTimestamp } from 'firebase/firestore';
 import { auth, db } from './firebase';
+import WaitingForApprovalPage from './components/WaitingForApprovalPage';
+import { PaySubdomainPortal, TimecardSubdomainPortal } from './components/SubdomainPortals';
 import { 
   Zap, 
   Wrench, 
@@ -44,11 +46,27 @@ import Navbar from './components/Navbar';
 import TelemetryDashboard from './components/TelemetryDashboard';
 import PermissionsManager from './components/PermissionsManager';
 import PaymentSettings from './components/PaymentSettings';
+import QuoRoutingConfig from './components/QuoRoutingConfig';
+import OnboardingPage from './components/OnboardingPage';
 
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'telemetry' | 'permissions' | 'payment'>('telemetry');
+  const [activeTab, setActiveTab] = useState<'telemetry' | 'permissions' | 'payment' | 'quo_routing'>('telemetry');
+
+  // Secure Onboarding route detection states (Phase 3)
+  const [isOnboarding, setIsOnboarding] = useState(false);
+  const [inviteId, setInviteId] = useState<string | null>(null);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const id = params.get('inviteId');
+    const isPathOnboard = window.location.pathname.toLowerCase() === '/onboard' || window.location.pathname.toLowerCase().startsWith('/onboard');
+    if (id || isPathOnboard) {
+      setIsOnboarding(true);
+      setInviteId(id || '');
+    }
+  }, []);
 
   // User details & claims state loaded from Firestore
   const [userClaims, setUserClaims] = useState<{ admin: boolean; pay: boolean; timecard: boolean }>({
@@ -57,6 +75,7 @@ export default function App() {
     timecard: false
   });
   const [profileName, setProfileName] = useState('New Service Agent');
+  const [currentUserAccessStatus, setCurrentUserAccessStatus] = useState<'Pending' | 'Active' | 'Restricted' | null>(null);
 
   // Detect subdomain Category automatically from hostname
   const [hostDomain, setHostDomain] = useState<'admin' | 'pay' | 'timecard'>('admin');
@@ -88,13 +107,20 @@ export default function App() {
       if (currentUser) {
         try {
           const userDoc = await getDoc(doc(db, 'users', currentUser.uid));
+          const isMasterAdmin = currentUser.email?.toLowerCase() === 'discountelectrician@gmail.com';
+          
           if (userDoc.exists()) {
             const data = userDoc.data();
             setUserClaims(data.claims || { admin: false, pay: false, timecard: false });
             setProfileName(data.displayName || currentUser.displayName || 'Authorized Worker');
+            
+            if (isMasterAdmin) {
+              setCurrentUserAccessStatus('Active');
+            } else {
+              setCurrentUserAccessStatus(data.accessStatus || data.employeeProfile?.accessStatus || 'Pending');
+            }
           } else {
             // Check if it matches master admin
-            const isMasterAdmin = currentUser.email?.toLowerCase() === 'discountelectrician@gmail.com';
             const defaultClaims = {
               admin: isMasterAdmin,
               pay: isMasterAdmin,
@@ -102,6 +128,7 @@ export default function App() {
             };
             setUserClaims(defaultClaims);
             setProfileName(currentUser.displayName || (isMasterAdmin ? 'Chief Administrator' : 'Authorized Worker'));
+            setCurrentUserAccessStatus(isMasterAdmin ? 'Active' : 'Pending');
             
             // Seed a Firestore document for this authenticated agent
             await setDoc(doc(db, 'users', currentUser.uid), {
@@ -110,7 +137,8 @@ export default function App() {
               displayName: currentUser.displayName || (isMasterAdmin ? 'Chief Administrator' : 'Authorized Worker'),
               createdAt: serverTimestamp(),
               updatedAt: serverTimestamp(),
-              claims: defaultClaims
+              claims: defaultClaims,
+              accessStatus: isMasterAdmin ? 'Active' : 'Pending'
             });
           }
         } catch (err) {
@@ -122,10 +150,12 @@ export default function App() {
             timecard: true
           });
           setProfileName(isMasterAdmin ? 'Chief Administrator' : 'Authorized Worker');
+          setCurrentUserAccessStatus(isMasterAdmin ? 'Active' : 'Pending');
         }
       } else {
         setUserClaims({ admin: false, pay: false, timecard: false });
         setProfileName('');
+        setCurrentUserAccessStatus(null);
       }
       setLoading(false);
     });
@@ -268,6 +298,39 @@ export default function App() {
     );
   }
 
+  // Intercept for Secure Automated Onboarding Page (Phase 3)
+  if (isOnboarding) {
+    return (
+      <OnboardingPage 
+        inviteId={inviteId || ''} 
+        onComplete={() => {
+          setIsOnboarding(false);
+          setInviteId(null);
+        }} 
+      />
+    );
+  }
+
+  // Enforcement Checks: If user is logged in on a subdomain and is not Active, deny and show WaitingForApprovalPage
+  if (user && hostDomain !== 'admin' && currentUserAccessStatus !== 'Active') {
+    return (
+      <WaitingForApprovalPage 
+        accessStatus={currentUserAccessStatus || 'Pending'} 
+        userEmail={user.email || ''} 
+        userName={profileName} 
+      />
+    );
+  }
+
+  // Active Subdomain Apps routing
+  if (user && hostDomain === 'pay' && currentUserAccessStatus === 'Active') {
+    return <PaySubdomainPortal user={user} profileName={profileName} />;
+  }
+
+  if (user && hostDomain === 'timecard' && currentUserAccessStatus === 'Active') {
+    return <TimecardSubdomainPortal user={user} profileName={profileName} />;
+  }
+
   return (
     <div className="min-h-screen bg-[#F8FAFC] flex flex-col font-sans">
       
@@ -288,7 +351,7 @@ export default function App() {
                 Discount Electrical
               </h2>
               <p className="text-xs text-slate-550 font-mono font-bold uppercase tracking-widest text-[#4F46E5] bg-indigo-50/80 px-2 py-1 rounded-md inline-block">
-                Central Administrative Gate
+                {hostDomain === 'pay' ? 'Worker Payments Portal' : hostDomain === 'timecard' ? 'Technician Timecards Gate' : 'Central Administrative Gate'}
               </p>
             </div>
 
@@ -437,6 +500,14 @@ export default function App() {
             >
               Payment
             </button>
+            {userClaims.admin && (
+              <button 
+                onClick={() => setActiveTab('quo_routing')}
+                className={`flex-1 py-1.5 rounded-lg text-center ${activeTab === 'quo_routing' ? 'bg-slate-900 text-white shadow-xs' : 'text-slate-500'}`}
+              >
+                Quo Routing
+              </button>
+            )}
           </div>
 
           {/* Render Core Component tab */}
@@ -444,8 +515,10 @@ export default function App() {
             <TelemetryDashboard />
           ) : activeTab === 'permissions' ? (
             <PermissionsManager />
-          ) : (
+          ) : activeTab === 'payment' ? (
             <PaymentSettings />
+          ) : (
+            <QuoRoutingConfig />
           )}
 
         </main>

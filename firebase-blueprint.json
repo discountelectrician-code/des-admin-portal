@@ -66,6 +66,28 @@
         "squareAccessToken": { "type": "string", "description": "API private access token for Square." }
       },
       "required": ["provider"]
+    },
+    "invite": {
+      "title": "Onboarding Invitation",
+      "description": "Represents an active, secure onboarding ticket designed to pre-seed technician claim records.",
+      "type": "object",
+      "properties": {
+        "email": { "type": "string" },
+        "name": { "type": "string" },
+        "role": { "type": "string" },
+        "payRate": { "type": "number" },
+        "status": { "type": "string", "enum": ["pending", "claimed"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "claims": { "type": "object" },
+        "cellPhone": { "type": "string" },
+        "driversLicense": { "type": "string" },
+        "homeAddress": { "type": "string" },
+        "hireDate": { "type": "string" },
+        "photoUrl": { "type": "string" },
+        "claimedAt": { "type": "string", "format": "date-time" },
+        "claimedByUid": { "type": "string" }
+      },
+      "required": ["name", "cellPhone", "status", "createdAt"]
     }
   },
   "firestore": {
@@ -80,6 +102,10 @@
     "settings/payment_config": {
       "schema": "payment_config",
       "description": "Stores the central payment gateway toggle setting."
+    },
+    "invites/{inviteId}": {
+      "schema": "invite",
+      "description": "Stores secure pending and claimed technician onboarding invitation profiles."
     }
   }
 }

@@ -101,6 +101,17 @@ service cloud.firestore {
         && (!('squareAccessToken' in data) || data.squareAccessToken is string);
     }
 
+    function isValidInvite(data) {
+      return data.keys().hasAll(['name', 'cellPhone', 'status', 'createdAt'])
+        && data.keys().size() >= 4
+        && data.name is string
+        && data.name.size() <= 100
+        && data.cellPhone is string
+        && data.status is string
+        && data.status in ['pending', 'claimed']
+        && (data.createdAt is string || data.createdAt is timestamp);
+    }
+
     // 4. Entity Access Path Matching
     
     // User Permissions & Custom Claims Sync collection
@@ -148,6 +159,30 @@ service cloud.firestore {
 
       // Settings updates are strictly preserved for Administrator accounts
       allow write: if isAdmin() && isValidId(settingId) && settingId == 'payment_config' && isValidPaymentConfig(incoming());
+    }
+
+    // Secure Onboarding Invitations Ticket Collection (Phase 1 & 3)
+    match /invites/{inviteId} {
+      // Public users can only retrieve a single document if they possess the exact invite URL identifier;
+      // queries (list operations) are strictly prohibited for public protection to avoid index enumeration.
+      allow get: if isValidId(inviteId);
+      allow list: if isAdmin();
+
+      // Only administrators can mint brand new invitation tickets
+      allow create: if isAdmin() && isValidId(inviteId) && isValidInvite(incoming());
+
+      // Public users when claiming their ticket can transition status pending -> claimed
+      allow update: if isValidId(inviteId) && (
+        isAdmin() || (
+          incoming().diff(existing()).affectedKeys().hasOnly(['status', 'claimedAt', 'claimedByUid']) &&
+          existing().status == 'pending' &&
+          incoming().status == 'claimed' &&
+          incoming().claimedByUid == request.auth.uid
+        )
+      );
+
+      // Only central administrators can revoke/delete tickets
+      allow delete: if isAdmin();
     }
   }
 }

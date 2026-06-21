@@ -11,7 +11,8 @@ import {
   updateDoc,
   serverTimestamp
 } from 'firebase/firestore';
-import { db } from '../firebase';
+import { sendPasswordResetEmail } from 'firebase/auth';
+import { db, auth } from '../firebase';
 import { UserProfile, UserClaims } from '../types';
 import { 
   ShieldAlert, 
@@ -105,6 +106,25 @@ export default function PermissionsManager() {
       alert(`Claim Update Failed via Firebase Rules:\n${err.message}`);
     } finally {
       setIsUpdating(false);
+    }
+  };
+
+  // Trigger Firebase password reset email flow (Phase 4)
+  const handleResetPassword = async (email: string) => {
+    if (!email) {
+      alert('This technician user has no associated email address.');
+      return;
+    }
+
+    const confirmReset = window.confirm(`Initiate Firebase secure password reset for: ${email}?\nThis will send a standard email containing a secure 1-hour expiration credential link.`);
+    if (!confirmReset) return;
+
+    try {
+      await sendPasswordResetEmail(auth, email);
+      alert(`Password reset link successfully dispatched to: ${email}`);
+    } catch (err: any) {
+      console.error("Password reset error:", err);
+      alert(`Failed to trigger secure password reset: ${err.message}`);
     }
   };
 
@@ -204,17 +224,28 @@ export default function PermissionsManager() {
                           </span>
                         </td>
                         <td className="px-5 py-3.5 text-right whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setEditingUser(usr);
-                              setIsEditModalOpen(true);
-                            }}
-                            className="inline-flex items-center space-x-1 text-xs font-bold text-indigo-600 hover:text-indigo-800 bg-indigo-50 hover:bg-indigo-100 px-2.5 py-1.5 rounded-lg border-none transition cursor-pointer"
-                          >
-                            <Edit className="w-3.5 h-3.5" />
-                            <span>Edit Profile</span>
-                          </button>
+                          <div className="flex items-center justify-end space-x-2">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setEditingUser(usr);
+                                setIsEditModalOpen(true);
+                              }}
+                              className="inline-flex items-center space-x-1 text-xs font-bold text-indigo-600 hover:text-indigo-800 bg-indigo-50 hover:bg-indigo-100 px-2.5 py-1.5 rounded-lg border-none transition cursor-pointer"
+                            >
+                              <Edit className="w-3.5 h-3.5" />
+                              <span>Edit Profile</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleResetPassword(usr.email)}
+                              className="inline-flex items-center space-x-1 text-xs font-bold text-amber-705 text-amber-700 hover:text-amber-900 bg-amber-50/80 hover:bg-amber-100 px-2.5 py-1.5 rounded-lg border-none transition cursor-pointer"
+                              title="Send Firebase password reset email"
+                            >
+                              <Lock className="w-3.5 h-3.5 text-amber-600" />
+                              <span>Reset Password</span>
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     );
@@ -304,17 +335,25 @@ export default function PermissionsManager() {
                       </div>
 
                       {/* Full-width Edit button at the bottom of the card */}
-                      <div className="p-3 bg-slate-50" onClick={(e) => e.stopPropagation()}>
+                      <div className="p-3 bg-slate-50 flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
                         <button
                           type="button"
                           onClick={() => {
                             setEditingUser(usr);
                             setIsEditModalOpen(true);
                           }}
-                          className="w-full inline-flex items-center justify-center space-x-2 text-sm font-bold text-indigo-700 bg-white hover:bg-indigo-50 border border-slate-200 hover:border-indigo-200 px-4 py-3 h-12 min-h-[48px] rounded-xl transition cursor-pointer active:scale-[0.98] shadow-sm font-sans"
+                          className="flex-1 inline-flex items-center justify-center space-x-1.5 text-xs font-bold text-indigo-700 bg-white hover:bg-indigo-50 border border-slate-200 hover:border-indigo-200 px-3 py-2.5 h-11 rounded-lg transition cursor-pointer active:scale-[0.98] shadow-xs font-sans"
                         >
-                          <Edit className="w-4 h-4 text-indigo-600" />
+                          <Edit className="w-3.5 h-3.5 text-indigo-600" />
                           <span>Edit Profile</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleResetPassword(usr.email)}
+                          className="flex-1 inline-flex items-center justify-center space-x-1.5 text-xs font-bold text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-200 px-3 py-2.5 h-11 rounded-lg transition cursor-pointer active:scale-[0.98] shadow-xs font-sans"
+                        >
+                          <Lock className="w-3.5 h-3.5 text-amber-600" />
+                          <span>Reset Password</span>
                         </button>
                       </div>
                     </div>

@@ -19,6 +19,7 @@ export interface EmployeeProfile {
   photoUrl?: string;
   status?: 'Active' | 'Terminated';
   terminationDate?: string;
+  accessStatus?: 'Pending' | 'Active' | 'Restricted';
   ext?: Record<string, any>;
 }
 
@@ -29,6 +30,7 @@ export interface UserProfile {
   createdAt: any; // Firestore Timestamp
   updatedAt: any; // Firestore Timestamp
   claims: UserClaims;
+  accessStatus?: 'Pending' | 'Active' | 'Restricted';
   employeeProfile?: EmployeeProfile;
 }
 
