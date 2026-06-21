@@ -9,6 +9,7 @@ import { updatePassword, sendPasswordResetEmail } from 'firebase/auth';
 import { db, auth as primaryAuth } from '../firebase';
 import { UserProfile, EmployeeProfile, UserClaims } from '../types';
 import { sendActivationSms } from '../utils/sms';
+import { formatDate, formatPhoneNumber } from '../utils/format';
 import { 
   X, 
   User, 
@@ -41,13 +42,16 @@ interface EditEmployeeModalProps {
 }
 
 export default function EditEmployeeModal({ isOpen, onClose, onSuccess, user }: EditEmployeeModalProps) {
+  const isMasterAdmin = !!user && (user.email?.toLowerCase() === 'discountelectrician@gmail.com' || (user.employeeProfile?.techLevel as string) === 'Master' || user.employeeProfile?.techLevel === 'Owner');
+
   // Field values
   const [fullName, setFullName] = useState('');
   const [payRate, setPayRate] = useState('');
-  const [techLevel, setTechLevel] = useState<'Apprentice' | 'Journeyman' | 'LLE' | 'Master'>('Apprentice');
+  const [techLevel, setTechLevel] = useState<'Helper' | 'Journeyman' | 'Lead' | 'General Manager' | 'Office' | 'Owner'>('Helper');
   const [homeAddress, setHomeAddress] = useState('');
   const [cellPhone, setCellPhone] = useState('');
   const [driversLicense, setDriversLicense] = useState('');
+  const [dlState, setDlState] = useState('TN');
   
   // Status and Termination
   const [status, setStatus] = useState<'Active' | 'Terminated'>('Active');
@@ -84,19 +88,21 @@ export default function EditEmployeeModal({ isOpen, onClose, onSuccess, user }: 
       
       if (user.employeeProfile) {
         setPayRate(user.employeeProfile.payRate?.toString() || '');
-        setTechLevel(user.employeeProfile.techLevel || 'Apprentice');
+        setTechLevel((user.employeeProfile.techLevel as any) || 'Helper');
         setHomeAddress(user.employeeProfile.homeAddress || '');
         setCellPhone(user.employeeProfile.cellPhone || '');
         setDriversLicense(user.employeeProfile.driversLicense || '');
+        setDlState(user.employeeProfile.dlState || 'TN');
         setStatus(user.employeeProfile.status || 'Active');
         setTerminationDate(user.employeeProfile.terminationDate || '');
         setAccessStatus(user.accessStatus || user.employeeProfile.accessStatus || 'Pending');
       } else {
         setPayRate('');
-        setTechLevel('Apprentice');
+        setTechLevel('Helper');
         setHomeAddress('');
         setCellPhone('');
         setDriversLicense('');
+        setDlState('TN');
         setStatus('Active');
         setTerminationDate('');
         setAccessStatus(user.accessStatus || 'Pending');
@@ -164,6 +170,7 @@ export default function EditEmployeeModal({ isOpen, onClose, onSuccess, user }: 
           homeAddress: homeAddress.trim(),
           cellPhone: cellPhone.trim(),
           driversLicense: driversLicense.trim(),
+          dlState: dlState,
           status: 'pending',
           ext: {
             ...(user.employeeProfile?.ext || {}),
@@ -182,6 +189,7 @@ export default function EditEmployeeModal({ isOpen, onClose, onSuccess, user }: 
           homeAddress: homeAddress.trim(),
           cellPhone: cellPhone.trim(),
           driversLicense: driversLicense.trim(),
+          dlState: dlState,
           photoUrl: user.employeeProfile?.photoUrl || `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(fullName)}`,
           status: status,
           terminationDate: status === 'Terminated' ? terminationDate : '',
@@ -375,10 +383,12 @@ export default function EditEmployeeModal({ isOpen, onClose, onSuccess, user }: 
                 onChange={e => setTechLevel(e.target.value as any)}
                 className="w-full text-sm text-slate-800 bg-white border border-slate-200 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 rounded-xl px-4 py-3 h-12 min-h-[48px] outline-none transition font-sans shadow-sm cursor-pointer"
               >
-                <option value="Apprentice">Apprentice</option>
+                <option value="Helper">Helper</option>
                 <option value="Journeyman">Journeyman</option>
-                <option value="LLE">LLE (Licensed Limited Electrician)</option>
-                <option value="Master">Master Electrician</option>
+                <option value="Lead">Lead</option>
+                <option value="General Manager">General Manager</option>
+                <option value="Office">Office</option>
+                <option value="Owner">Owner</option>
               </select>
             </div>
 
@@ -408,9 +418,9 @@ export default function EditEmployeeModal({ isOpen, onClose, onSuccess, user }: 
               <input 
                 type="tel"
                 required
-                value={cellPhone}
-                onChange={e => setCellPhone(e.target.value)}
-                placeholder="e.g. 615-555-0199"
+                value={cellPhone ? formatPhoneNumber(cellPhone) : ''}
+                onChange={e => setCellPhone(e.target.value.replace(/\D/g, ''))}
+                placeholder="e.g. (615) 555-0199"
                 className="w-full text-sm text-slate-800 bg-white border border-slate-200 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 rounded-xl px-4 py-3 h-12 min-h-[48px] outline-none transition font-sans shadow-sm"
               />
             </div>
@@ -437,14 +447,34 @@ export default function EditEmployeeModal({ isOpen, onClose, onSuccess, user }: 
                 <FileText className="w-3.5 h-3.5 text-indigo-550" />
                 <span>Driver's License Information <span className="text-red-500">*</span></span>
               </label>
-              <input 
-                type="text"
-                required
-                value={driversLicense}
-                onChange={e => setDriversLicense(e.target.value)}
-                placeholder="e.g. TN DL-992-10-441-A"
-                className="w-full text-sm text-slate-800 bg-white border border-slate-200 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 rounded-xl px-4 py-3 h-12 min-h-[48px] outline-none transition font-sans shadow-sm"
-              />
+              
+              <div className="grid grid-cols-3 gap-3">
+                <div className="col-span-1">
+                  <select
+                    value={dlState}
+                    onChange={e => setDlState(e.target.value)}
+                    className="w-full text-sm text-slate-800 bg-white border border-slate-200 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 rounded-xl px-4 py-3 h-12 min-h-[48px] outline-none transition font-sans shadow-sm cursor-pointer"
+                  >
+                    {['AL', 'AK', 'AZ', 'AR', 'CA', 'CO', 'CT', 'DE', 'FL', 'GA', 
+                      'HI', 'ID', 'IL', 'IN', 'IA', 'KS', 'KY', 'LA', 'ME', 'MD', 
+                      'MA', 'MI', 'MN', 'MS', 'MO', 'MT', 'NE', 'NV', 'NH', 'NJ', 
+                      'NM', 'NY', 'NC', 'ND', 'OH', 'OK', 'OR', 'PA', 'RI', 'SC', 
+                      'SD', 'TN', 'TX', 'UT', 'VT', 'VA', 'WA', 'WV', 'WI', 'WY'].map(state => (
+                        <option key={state} value={state}>{state}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="col-span-2">
+                  <input 
+                    type="text"
+                    required
+                    value={driversLicense}
+                    onChange={e => setDriversLicense(e.target.value)}
+                    placeholder="e.g. DL-992-10-441-A"
+                    className="w-full text-sm text-slate-800 bg-white border border-slate-200 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 rounded-xl px-4 py-3 h-12 min-h-[48px] outline-none transition font-sans shadow-sm"
+                  />
+                </div>
+              </div>
             </div>
 
             {/* Hire Date */}
@@ -457,7 +487,7 @@ export default function EditEmployeeModal({ isOpen, onClose, onSuccess, user }: 
                 type="text"
                 readOnly
                 disabled
-                value={user.employeeProfile?.hireDate || 'N/A'}
+                value={formatDate(user.employeeProfile?.hireDate)}
                 className="w-full text-sm text-slate-650 bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 h-12 min-h-[48px] outline-none font-sans cursor-not-allowed select-none shadow-sm"
               />
             </div>
@@ -543,14 +573,16 @@ export default function EditEmployeeModal({ isOpen, onClose, onSuccess, user }: 
                   <span className={`w-2 h-2 rounded-full border ${accessStatus === 'Active' ? 'bg-white border-white' : 'bg-emerald-500 border-emerald-600'}`}></span>
                   <span>Active</span>
                 </button>
-                <button
-                  type="button"
-                  onClick={() => setAccessStatus('Restricted')}
-                  className={`flex-1 flex items-center justify-center space-x-1.5 px-3 py-2.5 h-10 rounded-lg text-xs font-bold transition-all cursor-pointer ${accessStatus === 'Restricted' ? 'bg-rose-600 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-100 bg-transparent border-none'}`}
-                >
-                  <span className={`w-2 h-2 rounded-full border ${accessStatus === 'Restricted' ? 'bg-white border-white' : 'bg-rose-500 border-rose-600'}`}></span>
-                  <span>Restricted</span>
-                </button>
+                {!isMasterAdmin && (
+                  <button
+                    type="button"
+                    onClick={() => setAccessStatus('Restricted')}
+                    className={`flex-1 flex items-center justify-center space-x-1.5 px-3 py-2.5 h-10 rounded-lg text-xs font-bold transition-all cursor-pointer ${accessStatus === 'Restricted' ? 'bg-rose-600 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-100 bg-transparent border-none'}`}
+                  >
+                    <span className={`w-2 h-2 rounded-full border ${accessStatus === 'Restricted' ? 'bg-white border-white' : 'bg-rose-500 border-rose-600'}`}></span>
+                    <span>Restricted</span>
+                  </button>
+                )}
               </div>
             </div>
           </div>
@@ -785,21 +817,25 @@ export default function EditEmployeeModal({ isOpen, onClose, onSuccess, user }: 
           </div>
 
           <div className="flex flex-wrap items-center gap-3 w-full sm:w-auto justify-end">
-            <button 
-              type="button" 
-              onClick={handleDelete}
-              disabled={isSaving || isDeleting}
-              className="flex-1 sm:flex-none px-5 py-3 h-12 min-h-[48px] text-[11px] sm:text-xs font-bold text-red-650 text-red-600 hover:text-red-700 hover:bg-red-50 bg-white border border-red-200 hover:border-red-300 rounded-xl transition disabled:opacity-50 select-none cursor-pointer flex items-center justify-center gap-1.5 shadow-sm"
-            >
-              {isDeleting ? (
-                <Loader2 className="w-4 h-4 animate-spin text-red-500" />
-              ) : (
-                <Trash2 className="w-4 h-4 text-red-500" />
-              )}
-              <span>Delete Employee</span>
-            </button>
+            {!isMasterAdmin && (
+              <>
+                <button 
+                  type="button" 
+                  onClick={handleDelete}
+                  disabled={isSaving || isDeleting}
+                  className="flex-1 sm:flex-none px-5 py-3 h-12 min-h-[48px] text-[11px] sm:text-xs font-bold text-red-650 text-red-600 hover:text-red-700 hover:bg-red-50 bg-white border border-red-200 hover:border-red-300 rounded-xl transition disabled:opacity-50 select-none cursor-pointer flex items-center justify-center gap-1.5 shadow-sm"
+                >
+                  {isDeleting ? (
+                    <Loader2 className="w-4 h-4 animate-spin text-red-500" />
+                  ) : (
+                    <Trash2 className="w-4 h-4 text-red-500" />
+                  )}
+                  <span>Delete Employee</span>
+                </button>
 
-            <div className="hidden sm:block h-6 w-px bg-slate-200" />
+                <div className="hidden sm:block h-6 w-px bg-slate-200" />
+              </>
+            )}
 
             <button 
               type="button" 

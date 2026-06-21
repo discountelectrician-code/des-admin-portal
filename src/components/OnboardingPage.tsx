@@ -120,10 +120,11 @@ export default function OnboardingPage({ inviteId, onComplete }: OnboardingPageP
         employeeProfile: {
           hireDate: inviteData.hireDate || new Date().toISOString().split('T')[0],
           payRate: parseFloat(inviteData.payRate || '0'),
-          techLevel: inviteData.role || 'Apprentice',
+          techLevel: inviteData.role || 'Helper',
           homeAddress: inviteData.homeAddress || '',
           cellPhone: inviteData.cellPhone || '',
           driversLicense: inviteData.driversLicense || '',
+          dlState: inviteData.dlState || 'TN',
           photoUrl: inviteData.photoUrl || userRecord.photoURL || `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(inviteData.name)}`,
           ext: {
             onboardedBy: inviteData.ext?.onboardedBy || 'Invitation Framework',
@@ -277,7 +278,12 @@ export default function OnboardingPage({ inviteId, onComplete }: OnboardingPageP
                 referrerPolicy="no-referrer"
               />
             ) : (
-              <User className="w-10 h-10 text-slate-400" />
+              <img 
+                src="/discount-electrical-service-logo.png" 
+                alt="Discount Electrical Service Logo" 
+                className="w-12 h-12 object-contain"
+                referrerPolicy="no-referrer"
+              />
             )}
           </div>
 

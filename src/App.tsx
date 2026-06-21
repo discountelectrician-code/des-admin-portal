@@ -519,38 +519,8 @@ export default function App() {
         </main>
       ) : (
         /* PORTAL AUTHENTICATED ACCESS STATE (Default / Admin console) */
-        <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
+        <main className="flex-1 max-w-7xl w-full mx-auto px-1.5 sm:px-6 lg:px-8 pt-8 pb-24 md:pb-8 space-y-8">
           
-          {/* Quick tab cards for Mobile fallback */}
-          <div className="flex md:hidden bg-white p-1 rounded-xl border border-slate-200 shadow-xs max-w-[440px] mx-auto text-[10px] font-bold">
-            <button 
-              onClick={() => setActiveTab('telemetry')}
-              className={`flex-1 py-1.5 rounded-lg text-center ${activeTab === 'telemetry' ? 'bg-slate-900 text-white shadow-xs' : 'text-slate-500'}`}
-            >
-              Telemetry
-            </button>
-            <button 
-              onClick={() => setActiveTab('permissions')}
-              className={`flex-1 py-1.5 rounded-lg text-center ${activeTab === 'permissions' ? 'bg-slate-900 text-white shadow-xs' : 'text-slate-500'}`}
-            >
-              Permissions
-            </button>
-            <button 
-              onClick={() => setActiveTab('payment')}
-              className={`flex-1 py-1.5 rounded-lg text-center ${activeTab === 'payment' ? 'bg-slate-900 text-white shadow-xs' : 'text-slate-500'}`}
-            >
-              Payment
-            </button>
-            {userClaims.admin && (
-              <button 
-                onClick={() => setActiveTab('quo_routing')}
-                className={`flex-1 py-1.5 rounded-lg text-center ${activeTab === 'quo_routing' ? 'bg-slate-900 text-white shadow-xs' : 'text-slate-500'}`}
-              >
-                Quo Routing
-              </button>
-            )}
-          </div>
-
           {/* Render Core Component tab */}
           {activeTab === 'telemetry' ? (
             <TelemetryDashboard />

@@ -12,10 +12,11 @@ export interface UserClaims {
 export interface EmployeeProfile {
   hireDate: string;
   payRate: number;
-  techLevel: 'Apprentice' | 'Journeyman' | 'LLE' | 'Master';
+  techLevel: 'Helper' | 'Journeyman' | 'Lead' | 'General Manager' | 'Office' | 'Owner';
   homeAddress: string;
   cellPhone: string;
   driversLicense: string;
+  dlState?: string;
   photoUrl?: string;
   status?: 'Pending' | 'Active' | 'Terminated';
   terminationDate?: string;

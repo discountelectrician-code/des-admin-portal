@@ -18,6 +18,7 @@ import {
 } from 'firebase/firestore';
 import { db, auth } from '../firebase';
 import { TrackingEvent } from '../types';
+import { formatDate } from '../utils/format';
 import { 
   Activity, 
   ShieldCheck, 
@@ -422,7 +423,7 @@ export default function TelemetryDashboard() {
                             {dateVal.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
                           </div>
                           <div className="text-[10px] font-mono text-slate-400">
-                            {dateVal.toLocaleDateString()}
+                            {formatDate(dateVal)}
                           </div>
                         </td>
                         <td className="px-5 py-3.5 space-y-1">

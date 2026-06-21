@@ -18,6 +18,7 @@ import {
   Link2
 } from 'lucide-react';
 import { sendOnboardingSms } from '../utils/sms';
+import { formatPhoneNumber } from '../utils/format';
 
 interface AddEmployeeModalProps {
   isOpen: boolean;
@@ -163,7 +164,7 @@ export default function AddEmployeeModal({ isOpen, onClose, onSuccess }: AddEmpl
                 SMS Dispatch Status: {smsStatus}
               </div>
               <p className="leading-relaxed text-[11px] text-slate-300">
-                {smsStatus === 'success' && `Welcome text successfully sent from Quo to ${cellPhone}.`}
+                {smsStatus === 'success' && `Welcome text successfully sent from Quo to ${formatPhoneNumber(cellPhone)}.`}
                 {smsStatus === 'failed' && `Failed sending text message. Please manually share the ticket URL below.`}
                 {smsStatus === 'sending' && `Outbound Quo API request in progress...`}
               </p>

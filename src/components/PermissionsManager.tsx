@@ -39,6 +39,7 @@ import {
 } from 'lucide-react';
 import AddEmployeeModal from './AddEmployeeModal';
 import EditEmployeeModal from './EditEmployeeModal';
+import { formatDate, formatPhoneNumber } from '../utils/format';
 
 export default function PermissionsManager() {
   const [activeUsers, setActiveUsers] = useState<UserProfile[]>([]);
@@ -88,7 +89,7 @@ export default function PermissionsManager() {
           list.push({
             uid: docSnap.id,
             isInvite: true,
-            email: `Pending (SMS to ${data.cellPhone || 'N/A'})`,
+            email: `Pending (SMS to ${formatPhoneNumber(data.cellPhone)})`,
             displayName: data.name || 'Pending Onboarding',
             createdAt: data.createdAt,
             updatedAt: data.createdAt,
@@ -96,10 +97,11 @@ export default function PermissionsManager() {
             employeeProfile: {
               hireDate: data.hireDate || new Date().toISOString().split('T')[0],
               payRate: parseFloat(data.payRate || '0'),
-              techLevel: data.role || 'Apprentice',
+              techLevel: data.role || 'Helper',
               homeAddress: data.homeAddress || '',
               cellPhone: data.cellPhone || '',
               driversLicense: data.driversLicense || '',
+              dlState: data.dlState || 'TN',
               status: 'Pending',
               photoUrl: data.photoUrl || `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(data.name || 'Pending')}`,
               ext: data.ext
@@ -234,21 +236,21 @@ export default function PermissionsManager() {
   };
 
   return (
-    <div id="permissions_manager_view" className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+    <div id="permissions_manager_view" className="grid grid-cols-1 lg:grid-cols-3 gap-4 lg:gap-8">
       
       {/* COLUMN 1 & 2: User Profiles Directory List */}
       <div className="lg:col-span-2 space-y-6">
         
         {/* Compact Title bar */}
-        <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div className="bg-white border border-slate-200 rounded-xl p-3.5 sm:p-5 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div className="flex items-center space-x-3 text-slate-800">
             <Users className="w-5 h-5 text-indigo-600" />
-            <h2 className="text-lg font-bold font-sans">Multi-Subdomain Identity Repository</h2>
+            <h2 className="text-lg font-bold font-sans">Employee Control Panel</h2>
           </div>
           
           <button 
             onClick={() => setIsAddModalOpen(true)}
-            className="flex items-center space-x-2 text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-xl transition shadow-md hover:shadow border-none cursor-pointer"
+            className="flex items-center justify-center space-x-2 text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2.5 rounded-xl transition shadow-md hover:shadow border-none cursor-pointer w-full sm:w-auto"
           >
             <UserPlus className="w-4 h-4" />
             <span>Add New Employee</span>
@@ -257,7 +259,7 @@ export default function PermissionsManager() {
 
         {/* Directory Table Grid */}
         <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm">
-          <div className="px-5 py-4 border-b border-slate-150 flex items-center justify-between">
+          <div className="px-3 py-3.5 sm:px-5 sm:py-4 border-b border-slate-150 flex items-center justify-between">
             <h3 className="font-semibold text-slate-800 text-sm">Active Subdomain Users Directory</h3>
             <span className="text-xs text-indigo-600 bg-indigo-50 px-2.5 py-0.5 rounded-full font-mono font-bold leading-none">{users.length} Registered</span>
           </div>
@@ -269,23 +271,21 @@ export default function PermissionsManager() {
                 <tr className="bg-slate-50 border-b border-slate-100 text-[10px] uppercase font-bold text-slate-400 tracking-wider">
                   <th className="px-5 py-3">Employee Name</th>
                   <th className="px-5 py-3">Auth Email</th>
-                  <th className="px-5 py-3 text-center">Admin Claim</th>
-                  <th className="px-5 py-3 text-center">Pay Claim</th>
-                  <th className="px-5 py-3 text-center">Timecard Claim</th>
+                  <th className="px-5 py-3 text-center">Status</th>
                   <th className="px-5 py-3 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 font-sans">
                 {loading ? (
                   <tr>
-                    <td colSpan={6} className="text-center py-12 font-mono text-slate-400">
+                    <td colSpan={4} className="text-center py-12 font-mono text-slate-400">
                       <RefreshCw className="w-5 h-5 animate-spin mx-auto mb-2 text-slate-350" />
                       Loading users list...
                     </td>
                   </tr>
                 ) : users.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="text-center py-12 font-sans text-slate-500 bg-slate-50 text-xs">
+                    <td colSpan={4} className="text-center py-12 font-sans text-slate-500 bg-slate-50 text-xs">
                       No users in directory. Click <strong className="font-bold underline cursor-pointer text-indigo-600 hover:text-indigo-700" onClick={() => setIsAddModalOpen(true)}>"Add New Employee"</strong> to onboard a new technician shift member!
                     </td>
                   </tr>
@@ -300,39 +300,27 @@ export default function PermissionsManager() {
                         className={`hover:bg-slate-50 cursor-pointer transition-colors ${selectedUserId === usr.uid ? 'bg-indigo-50/40 border-l-2 border-l-indigo-600' : ''}`}
                       >
                         <td className="px-5 py-3.5 font-semibold text-slate-800 font-sans">
-                          <div className="flex items-center space-x-2">
-                            <span className={isTerminated ? 'text-slate-400 line-through' : ''}>
-                              {usr.displayName}
-                            </span>
-                            {isPending && (
-                              <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold font-mono bg-amber-100 text-amber-700 border border-amber-200">
-                                PENDING
-                              </span>
-                            )}
-                            {isTerminated && (
-                              <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold font-mono bg-red-100 text-red-750 text-red-700 border border-red-200">
-                                LF-TERMINATED
-                              </span>
-                            )}
-                          </div>
+                          <span className={isTerminated ? 'text-slate-400 line-through' : ''}>
+                            {usr.displayName}
+                          </span>
                         </td>
                         <td className={`px-5 py-3.5 font-mono text-slate-500 text-[11px] ${isTerminated ? 'text-slate-400' : ''}`}>
                           {usr.email}
                         </td>
                         <td className="px-5 py-3.5 text-center">
-                          <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-mono leading-none ${usr.claims.admin ? 'bg-purple-100 text-purple-700 font-bold border border-purple-200' : 'bg-slate-100 text-slate-400'}`}>
-                            {usr.claims.admin ? 'ACTIVE' : 'INACTIVE'}
-                          </span>
-                        </td>
-                        <td className="px-5 py-3.5 text-center">
-                          <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-mono leading-none ${usr.claims.pay ? 'bg-sky-100 text-sky-700 font-bold border border-sky-200' : 'bg-slate-100 text-slate-400'}`}>
-                            {usr.claims.pay ? 'ACTIVE' : 'INACTIVE'}
-                          </span>
-                        </td>
-                        <td className="px-5 py-3.5 text-center">
-                          <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-mono leading-none ${usr.claims.timecard ? 'bg-teal-100 text-teal-700 font-bold border border-teal-200' : 'bg-slate-100 text-slate-400'}`}>
-                            {usr.claims.timecard ? 'ACTIVE' : 'INACTIVE'}
-                          </span>
+                          {isPending ? (
+                            <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-bold font-mono bg-amber-100 text-amber-700 border border-amber-200">
+                              PENDING
+                            </span>
+                          ) : isTerminated ? (
+                            <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-bold font-mono bg-red-100 text-red-750 text-red-700 border border-red-200">
+                              LF-TERMINATED
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-bold font-mono bg-emerald-100 text-emerald-700 border border-emerald-200">
+                              ACTIVE
+                            </span>
+                          )}
                         </td>
                         <td className="px-5 py-3.5 text-right whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
                           <div className="flex items-center justify-end space-x-2">
@@ -350,21 +338,23 @@ export default function PermissionsManager() {
                             <button
                               type="button"
                               onClick={() => handleResetPassword(usr.email)}
-                              className="inline-flex items-center space-x-1 text-xs font-bold text-amber-705 text-amber-700 hover:text-amber-900 bg-amber-50/80 hover:bg-amber-100 px-2.5 py-1.5 rounded-lg border-none transition cursor-pointer"
+                              className="inline-flex items-center space-x-1 text-xs font-bold text-amber-755 text-amber-700 hover:text-amber-900 bg-amber-50/80 hover:bg-amber-100 px-2.5 py-1.5 rounded-lg border-none transition cursor-pointer"
                               title="Send Firebase password reset email"
                             >
                               <Lock className="w-3.5 h-3.5 text-amber-600" />
                               <span>Reset Password</span>
                             </button>
-                            <button
-                              type="button"
-                              onClick={() => handleDeleteUserOrInvite(usr)}
-                              className="inline-flex items-center space-x-1 text-xs font-bold text-rose-600 hover:text-rose-800 bg-rose-50 hover:bg-rose-100 px-2.5 py-1.5 rounded-lg border-none transition cursor-pointer"
-                              title="Delete user or onboarding invite"
-                            >
-                              <Trash2 className="w-3.5 h-3.5 text-rose-500" />
-                              <span>Delete</span>
-                            </button>
+                            {!(usr.email?.toLowerCase() === 'discountelectrician@gmail.com' || usr.employeeProfile?.techLevel === 'Master') && (
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteUserOrInvite(usr)}
+                                className="inline-flex items-center space-x-1 text-xs font-bold text-rose-600 hover:text-rose-800 bg-rose-50 hover:bg-rose-100 px-2.5 py-1.5 rounded-lg border-none transition cursor-pointer"
+                                title="Delete user or onboarding invite"
+                              >
+                                <Trash2 className="w-3.5 h-3.5 text-rose-500" />
+                                <span>Delete</span>
+                              </button>
+                            )}
                           </div>
                         </td>
                       </tr>
@@ -387,10 +377,10 @@ export default function PermissionsManager() {
                 No users in directory. Click <strong className="font-bold underline cursor-pointer text-indigo-600 hover:text-indigo-700" onClick={() => setIsAddModalOpen(true)}>"Add New Employee"</strong> to onboard a new technician shift member!
               </div>
             ) : (
-              <div className="p-4 space-y-4 bg-slate-50/50 border-t border-slate-100">
+              <div className="p-1 px-1.5 sm:p-4 space-y-3 sm:space-y-4 bg-slate-50/50 border-t border-slate-100">
                 {users.map((usr) => {
                   const isTerminated = usr.employeeProfile?.status === 'Terminated';
-                  const techRole = usr.employeeProfile?.techLevel || 'Apprentice';
+                  const techRole = usr.employeeProfile?.techLevel || 'Helper';
                   
                   return (
                     <div 
@@ -399,7 +389,7 @@ export default function PermissionsManager() {
                       className={`bg-white border rounded-2xl overflow-hidden shadow-sm transition-all focus-within:ring-2 focus-within:ring-indigo-550 flex flex-col active:scale-[0.99] select-none ${selectedUserId === usr.uid ? 'ring-2 ring-indigo-600 border-transparent bg-indigo-50/10 shadow-md' : 'border-slate-200'}`}
                     >
                       {/* Card Content Header */}
-                      <div className="p-4 flex items-start justify-between gap-3">
+                      <div className="p-3 sm:p-4 flex items-start justify-between gap-2.5 border-b border-slate-100">
                         <div className="space-y-1 flex-1 min-w-0">
                           {/* Name */}
                           <div className="font-bold text-slate-800 text-sm truncate flex items-center gap-1.5 flex-wrap">
@@ -411,78 +401,62 @@ export default function PermissionsManager() {
                           <div className="text-xs text-slate-500 font-mono truncate">{usr.email}</div>
                           
                           {/* Tech Level classification badge */}
-                          <div className="pt-2 flex items-center gap-2 flex-wrap">
-                            <span className="inline-flex items-center px-2 py-0.5 rounded-lg text-[10px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-100 uppercase tracking-wide">
+                          <div className="pt-2 flex items-center gap-1.5 flex-wrap">
+                            <span className="inline-flex items-center px-1.5 py-0.5 rounded-lg text-[9px] sm:text-[10px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-100 uppercase tracking-wide">
                               {techRole}
                             </span>
                           </div>
                         </div>
-
+ 
                         {/* Status Badge */}
                         <div className="flex-shrink-0">
-                          {isTerminated ? (
-                            <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-bold font-mono bg-red-100 text-red-750 text-red-700 border border-red-200 uppercase tracking-wider">
+                          {usr.isInvite ? (
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[9px] sm:text-[10px] font-bold font-mono bg-amber-100 text-amber-700 border border-amber-200 uppercase tracking-wider">
+                              Pending
+                            </span>
+                          ) : isTerminated ? (
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[9px] sm:text-[10px] font-bold font-mono bg-red-100 text-red-750 text-red-700 border border-red-200 uppercase tracking-wider">
                               Terminated
                             </span>
                           ) : (
-                            <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-bold font-mono bg-emerald-100 text-emerald-700 border border-emerald-200 uppercase tracking-wider">
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[9px] sm:text-[10px] font-bold font-mono bg-emerald-100 text-emerald-700 border border-emerald-200 uppercase tracking-wider">
                               Active
                             </span>
                           )}
                         </div>
                       </div>
 
-                      {/* Access claims displays */}
-                      <div className="px-4 pb-4 grid grid-cols-3 gap-2 border-b border-slate-100">
-                        <div className="bg-slate-50 rounded-lg p-2 text-center border border-slate-150">
-                          <span className="block text-[8px] uppercase tracking-wider text-slate-400 font-bold mb-0.5 font-sans">Admin</span>
-                          <span className={`inline-block px-1.5 py-0.5 rounded text-[9px] font-mono leading-none ${usr.claims.admin ? 'bg-purple-100 text-purple-700 font-bold border border-purple-200' : 'bg-slate-100 text-slate-400'}`}>
-                            {usr.claims.admin ? 'YES' : 'NO'}
-                          </span>
-                        </div>
-                        <div className="bg-slate-50 rounded-lg p-2 text-center border border-slate-150">
-                          <span className="block text-[8px] uppercase tracking-wider text-slate-400 font-bold mb-0.5 font-sans">Pay</span>
-                          <span className={`inline-block px-1.5 py-0.5 rounded text-[9px] font-mono leading-none ${usr.claims.pay ? 'bg-sky-100 text-sky-700 font-bold border border-sky-200' : 'bg-slate-100 text-slate-400'}`}>
-                            {usr.claims.pay ? 'YES' : 'NO'}
-                          </span>
-                        </div>
-                        <div className="bg-slate-50 rounded-lg p-2 text-center border border-slate-150">
-                          <span className="block text-[8px] uppercase tracking-wider text-slate-400 font-bold mb-0.5 font-sans">Timecard</span>
-                          <span className={`inline-block px-1.5 py-0.5 rounded text-[9px] font-mono leading-none ${usr.claims.timecard ? 'bg-teal-100 text-teal-700 font-bold border border-teal-200' : 'bg-slate-100 text-slate-400'}`}>
-                            {usr.claims.timecard ? 'YES' : 'NO'}
-                          </span>
-                        </div>
-                      </div>
-
                       {/* Full-width Edit button at the bottom of the card */}
-                      <div className="p-3 bg-slate-50 flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                      <div className="p-2 sm:p-3 bg-slate-50 flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
                         <button
                           type="button"
                           onClick={() => {
                             setEditingUser(usr);
                             setIsEditModalOpen(true);
                           }}
-                          className="flex-1 inline-flex items-center justify-center space-x-1.5 text-xs font-bold text-indigo-700 bg-white hover:bg-indigo-50 border border-slate-200 hover:border-indigo-200 px-3 py-2.5 h-11 rounded-lg transition cursor-pointer active:scale-[0.98] shadow-xs font-sans"
+                          className="flex-1 inline-flex items-center justify-center space-x-1 sm:space-x-1.5 text-[10px] sm:text-xs font-bold text-indigo-700 bg-white hover:bg-indigo-50 border border-slate-200 hover:border-indigo-200 px-1.5 sm:px-3 h-8 sm:h-11 rounded-lg transition cursor-pointer active:scale-[0.98] shadow-xs font-sans"
                         >
-                          <Edit className="w-3.5 h-3.5 text-indigo-600" />
+                          <Edit className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-indigo-600 shrink-0" />
                           <span>Edit</span>
                         </button>
                         <button
                           type="button"
                           onClick={() => handleResetPassword(usr.email)}
-                          className="flex-1 inline-flex items-center justify-center space-x-1.5 text-xs font-bold text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-200 px-3 py-2.5 h-11 rounded-lg transition cursor-pointer active:scale-[0.98] shadow-xs font-sans"
+                          className="flex-1 inline-flex items-center justify-center space-x-1 sm:space-x-1.5 text-[10px] sm:text-xs font-bold text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-200 px-1.5 sm:px-3 h-8 sm:h-11 rounded-lg transition cursor-pointer active:scale-[0.98] shadow-xs font-sans"
                         >
-                          <Lock className="w-3.5 h-3.5 text-amber-600" />
+                          <Lock className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-amber-600 shrink-0" />
                           <span>Reset</span>
                         </button>
-                        <button
-                          type="button"
-                          onClick={() => handleDeleteUserOrInvite(usr)}
-                          className="inline-flex items-center justify-center w-11 h-11 text-rose-600 bg-rose-50 hover:bg-rose-100 border border-rose-250 rounded-lg transition cursor-pointer active:scale-[0.98] shrink-0"
-                          title="Delete user or onboarding invite"
-                        >
-                          <Trash2 className="w-4 h-4 text-rose-500" />
-                        </button>
+                        {!(usr.email?.toLowerCase() === 'discountelectrician@gmail.com' || usr.employeeProfile?.techLevel === 'Master') && (
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteUserOrInvite(usr)}
+                            className="inline-flex items-center justify-center w-8 h-8 sm:w-11 sm:h-11 text-rose-600 bg-rose-50 hover:bg-rose-100 border border-rose-250 rounded-lg transition cursor-pointer active:scale-[0.98] shrink-0"
+                            title="Delete user or onboarding invite"
+                          >
+                            <Trash2 className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-rose-500" />
+                          </button>
+                        )}
                       </div>
                     </div>
                   );
@@ -502,7 +476,7 @@ export default function PermissionsManager() {
           <div className="bg-slate-900 px-5 py-4 text-white">
             <h3 className="text-sm font-semibold tracking-wider uppercase flex items-center space-x-2">
               <ShieldCheck className="w-4 h-4 text-emerald-400" />
-              <span>Claims Customiser</span>
+              <span>Employee Details</span>
             </h3>
           </div>
 
@@ -551,7 +525,7 @@ export default function PermissionsManager() {
                       <Calendar className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
                       <div>
                         <span className="text-[10px] text-slate-400 block font-normal uppercase">Hire Date</span>
-                        <span className="font-semibold text-slate-705">{selectedUser.employeeProfile.hireDate}</span>
+                        <span className="font-semibold text-slate-705">{formatDate(selectedUser.employeeProfile.hireDate)}</span>
                       </div>
                     </div>
 
@@ -560,7 +534,7 @@ export default function PermissionsManager() {
                         <Calendar className="w-3.5 h-3.5 text-red-500 flex-shrink-0" />
                         <div>
                           <span className="text-[10px] text-red-500 block font-normal uppercase">Termination Date</span>
-                          <span className="font-semibold">{selectedUser.employeeProfile.terminationDate}</span>
+                          <span className="font-semibold">{formatDate(selectedUser.employeeProfile.terminationDate)}</span>
                         </div>
                       </div>
                     )}
@@ -587,7 +561,7 @@ export default function PermissionsManager() {
                       <Phone className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
                       <div>
                         <span className="text-[10px] text-slate-400 block font-normal uppercase">Cell Contact</span>
-                        <span className="font-semibold text-slate-750">{selectedUser.employeeProfile.cellPhone}</span>
+                        <span className="font-semibold text-slate-750">{formatPhoneNumber(selectedUser.employeeProfile.cellPhone)}</span>
                       </div>
                     </div>
 
@@ -603,7 +577,9 @@ export default function PermissionsManager() {
                       <FileText className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
                       <div>
                         <span className="text-[10px] text-slate-400 block font-normal uppercase">Driver's License</span>
-                        <span className="font-mono font-semibold text-slate-705">{selectedUser.employeeProfile.driversLicense}</span>
+                        <span className="font-mono font-semibold text-slate-705">
+                          {selectedUser.employeeProfile.driversLicense} {selectedUser.employeeProfile.driversLicense && `(${selectedUser.employeeProfile.dlState || 'TN'})`}
+                        </span>
                       </div>
                     </div>
 
@@ -624,7 +600,7 @@ export default function PermissionsManager() {
 
               {/* Toggles */}
               <div className="space-y-4">
-                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Custom Claims Assignments</span>
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">EMPLOYEE ACCESS PERMISSIONS</span>
                 
                 {/* ADMIN CLAIM */}
                 <div className="flex items-start justify-between p-3 rounded-lg border border-slate-200 hover:border-purple-300 bg-slate-50 transition-all">
@@ -722,16 +698,7 @@ export default function PermissionsManager() {
 
         </div>
 
-        {/* Security Warning card */}
-        <div className="bg-amber-50 rounded-xl p-4 border border-amber-250 text-amber-800">
-          <div className="flex items-center space-x-2 text-amber-600 mb-1.5 font-sans">
-            <ShieldAlert className="w-4 h-4" />
-            <span className="text-xs font-bold uppercase tracking-wider">Hardened Security Guard</span>
-          </div>
-          <p className="text-[11px] leading-relaxed">
-            Standard technicians cannot modify their own permissions in Firestore. Only users matching the <code className="bg-amber-100 px-1 py-0.5 rounded font-mono text-[9px]">admin</code> custom claim or bootstrapped email are authorized to write permissions to this directory.
-          </p>
-        </div>
+
 
       </div>
 

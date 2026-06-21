@@ -83,11 +83,11 @@ export default function Navbar({ activeTab, setActiveTab, currentUser }: NavbarP
         <div className="flex justify-between items-center h-16">
           
           {/* Logo Brand */}
-          <div className="flex items-center space-x-3 select-none">
+          <div className="flex items-center select-none">
             <img 
               src="/discount-electrical-service-logo.png" 
               alt="Discount Electrical Service Logo" 
-              className="h-8 w-8 object-contain shrink-0 transition-transform duration-300 hover:scale-105" 
+              className="w-8 h-8 object-contain mr-2 shrink-0 transition-transform duration-300 hover:scale-105" 
               referrerPolicy="no-referrer"
             />
             <div className="flex flex-col justify-center">
@@ -124,7 +124,7 @@ export default function Navbar({ activeTab, setActiveTab, currentUser }: NavbarP
                 }`}
               >
                 <Users className="w-4 h-4" />
-                <span>Permissions & Claims</span>
+                <span>Employee Control Panel</span>
               </button>
 
               <button
@@ -162,14 +162,6 @@ export default function Navbar({ activeTab, setActiveTab, currentUser }: NavbarP
                 <div className="hidden sm:block text-right">
                   <div className="font-bold text-slate-100 text-[11px] font-sans pr-1">{userProfileName}</div>
                   <div className="text-[10px] font-mono text-slate-450">{currentUser.email}</div>
-                  
-                  {/* Badge Row showing available claims */}
-                  <div className="flex justify-end gap-1 mt-1 font-mono text-[8px] font-bold">
-                    {activeClaims.admin && <span className="bg-purple-900/50 text-purple-300 border border-purple-800 px-1 rounded">CLAIM:ADMIN</span>}
-                    {activeClaims.pay && <span className="bg-sky-900/50 text-sky-300 border border-sky-800 px-1 rounded">CLAIM:PAY</span>}
-                    {activeClaims.timecard && <span className="bg-teal-900/50 text-teal-300 border border-teal-800 px-1 rounded">CLAIM:TIMECARD</span>}
-                    {!activeClaims.admin && !activeClaims.pay && !activeClaims.timecard && <span className="bg-slate-800 text-slate-500 border border-slate-700 px-1 rounded">NO CLAIMS</span>}
-                  </div>
                 </div>
 
                 <div className="bg-slate-850 border border-slate-700 p-1.5 rounded-full text-slate-300 relative">
@@ -196,45 +188,45 @@ export default function Navbar({ activeTab, setActiveTab, currentUser }: NavbarP
 
         </div>
 
-        {/* Mobile Nav Drawer items */}
+        {/* Mobile Fixed Bottom Navigation Bar */}
         {currentUser && (
-          <div className="md:hidden flex space-x-1 border-t border-slate-800 py-2.5 justify-around text-xs font-semibold">
+          <div className="md:hidden fixed bottom-0 left-0 w-full bg-slate-950 border-t border-slate-800 py-2.5 px-1.5 z-50 shadow-2xl flex justify-around items-center pb-safe" id="mobile-fixed-bottom-nav">
             <button
               onClick={() => setActiveTab('telemetry')}
-              className={`flex items-center space-x-1 px-3 py-1.5 rounded-md ${
-                activeTab === 'telemetry' ? 'bg-slate-800 text-amber-400' : 'text-slate-400'
+              className={`flex flex-col items-center justify-center space-y-1 flex-1 transition cursor-pointer border-none bg-transparent ${
+                activeTab === 'telemetry' ? 'text-amber-400 font-bold' : 'text-slate-400 hover:text-slate-200'
               }`}
             >
-              <Activity className="w-3.5 h-3.5" />
-              <span>Telemetry Panel</span>
+              <Activity className="w-5 h-5" />
+              <span className="text-[9px] tracking-tight text-center truncate w-full">Telemetry</span>
             </button>
             <button
               onClick={() => setActiveTab('permissions')}
-              className={`flex items-center space-x-1 px-3 py-1.5 rounded-md ${
-                activeTab === 'permissions' ? 'bg-slate-800 text-amber-400' : 'text-slate-400'
+              className={`flex flex-col items-center justify-center space-y-1 flex-1 transition cursor-pointer border-none bg-transparent ${
+                activeTab === 'permissions' ? 'text-amber-400 font-bold' : 'text-slate-400 hover:text-slate-200'
               }`}
             >
-              <Users className="w-3.5 h-3.5" />
-              <span>Permissions</span>
+              <Users className="w-5 h-5" />
+              <span className="text-[9px] tracking-tight text-center truncate w-full">Employees</span>
             </button>
             <button
               onClick={() => setActiveTab('payment')}
-              className={`flex items-center space-x-1 px-3 py-1.5 rounded-md ${
-                activeTab === 'payment' ? 'bg-slate-800 text-amber-400' : 'text-slate-400'
+              className={`flex flex-col items-center justify-center space-y-1 flex-1 transition cursor-pointer border-none bg-transparent ${
+                activeTab === 'payment' ? 'text-amber-400 font-bold' : 'text-slate-400 hover:text-slate-200'
               }`}
             >
-              <CreditCard className="w-3.5 h-3.5" />
-              <span>Payment</span>
+              <CreditCard className="w-5 h-5" />
+              <span className="text-[9px] tracking-tight text-center truncate w-full">Payment</span>
             </button>
             {activeClaims.admin && (
               <button
                 onClick={() => setActiveTab('quo_routing')}
-                className={`flex items-center space-x-1 px-3 py-1.5 rounded-md ${
-                  activeTab === 'quo_routing' ? 'bg-slate-800 text-amber-400' : 'text-slate-400'
+                className={`flex flex-col items-center justify-center space-y-1 flex-1 transition cursor-pointer border-none bg-transparent ${
+                  activeTab === 'quo_routing' ? 'text-amber-400 font-bold' : 'text-slate-400 hover:text-slate-200'
                 }`}
               >
-                <Phone className="w-3.5 h-3.5" />
-                <span>Quo Routing</span>
+                <Phone className="w-5 h-5" />
+                <span className="text-[9px] tracking-tight text-center truncate w-full">Routing</span>
               </button>
             )}
           </div>
