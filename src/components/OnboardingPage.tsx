@@ -279,7 +279,7 @@ export default function OnboardingPage({ inviteId, onComplete }: OnboardingPageP
               />
             ) : (
               <img 
-                src="/discount-electrical-service-logo.png" 
+                src="/discount-electrical-service-logo.svg" 
                 alt="Discount Electrical Service Logo" 
                 className="w-12 h-12 object-contain"
                 referrerPolicy="no-referrer"

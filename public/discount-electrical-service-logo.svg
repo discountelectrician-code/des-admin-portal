@@ -1,0 +1,121 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%">
+  <defs>
+    <!-- Cyan glow for lightning structure -->
+    <filter id="lightningGlow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="8" result="blur1" />
+      <feGaussianBlur stdDeviation="20" result="blur2" />
+      <feMerge>
+        <feMergeNode in="blur2" />
+        <feMergeNode in="blur1" />
+        <feMergeNode in="SourceGraphic" />
+      </feMerge>
+    </filter>
+    
+    <!-- Heavy atmospheric blue background fill -->
+    <radialGradient id="bgGlow" cx="50%" cy="50%" r="50%" fx="50%" fy="50%">
+      <stop offset="0%" stop-color="#0066cc" stop-opacity="0.4" />
+      <stop offset="60%" stop-color="#002244" stop-opacity="0.15" />
+      <stop offset="100%" stop-color="#000000" stop-opacity="0" />
+    </radialGradient>
+
+    <!-- Fist metallic shading -->
+    <linearGradient id="metallicSkin" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#5a6268" />
+      <stop offset="35%" stop-color="#343a40" />
+      <stop offset="70%" stop-color="#1e2225" />
+      <stop offset="100%" stop-color="#111315" />
+    </linearGradient>
+
+    <!-- Edge highlights for fist curves -->
+    <linearGradient id="edgeHighlight" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#9099a1" />
+      <stop offset="100%" stop-color="#343a40" />
+    </linearGradient>
+
+    <!-- Lightning Bolt gradient -->
+    <linearGradient id="boltGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff" />
+      <stop offset="40%" stop-color="#e6f5ff" />
+      <stop offset="100%" stop-color="#00a3ff" />
+    </linearGradient>
+  </defs>
+
+  <!-- Pitch Black Canvas -->
+  <rect width="100%" height="100%" fill="#000000" />
+
+  <!-- Center Atmospheric Blue Glow -->
+  <circle cx="256" cy="256" r="230" fill="url(#bgGlow)" />
+
+  <!-- Background electric branch line details -->
+  <g stroke="#00d2ff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" opacity="0.4" filter="url(#lightningGlow)">
+    <path d="M 120 220 L 90 200 L 70 210 L 40 180" fill="none" />
+    <path d="M 160 300 L 130 330 L 95 315 L 60 340" fill="none" />
+    <path d="M 380 200 L 420 180 L 440 205 L 485 170" fill="none" />
+    <path d="M 360 310 L 390 340 L 425 320 L 460 350" fill="none" />
+  </g>
+
+  <!-- Main electric lightning bolts passing horizontal-wise through the hand -->
+  <g stroke-linecap="round" stroke-linejoin="round">
+    <!-- Left Major Lightning Bolt -->
+    <!-- Glow layer -->
+    <path d="M 240 256 L 180 220 L 195 200 L 110 240 L 140 160 L 20 230" fill="none" stroke="#0099ff" stroke-width="10" filter="url(#lightningGlow)" opacity="0.8" />
+    <!-- Core layer -->
+    <path d="M 240 256 L 180 220 L 195 200 L 110 240 L 140 160 L 20 230" fill="none" stroke="url(#boltGrad)" stroke-width="3.5" />
+
+    <!-- Left Upper Fork -->
+    <path d="M 180 220 L 120 170" fill="none" stroke="#00bbff" stroke-width="6" filter="url(#lightningGlow)" opacity="0.6" />
+    <path d="M 180 220 L 120 170" fill="none" stroke="#ffffff" stroke-width="2.5" />
+
+    <!-- Left Lower Fork -->
+    <path d="M 110 240 L 70 300 L 10 290" fill="none" stroke="#00bbff" stroke-width="6" filter="url(#lightningGlow)" opacity="0.6" />
+    <path d="M 110 240 L 70 300 L 10 290" fill="none" stroke="#ffffff" stroke-width="2.5" />
+
+    <!-- Right Major Lightning Bolt -->
+    <!-- Glow layer -->
+    <path d="M 272 256 L 332 230 L 315 210 L 400 245 L 375 165 L 492 235" fill="none" stroke="#0099ff" stroke-width="10" filter="url(#lightningGlow)" opacity="0.8" />
+    <!-- Core layer -->
+    <path d="M 272 256 L 332 230 L 315 210 L 400 245 L 375 165 L 492 235" fill="none" stroke="url(#boltGrad)" stroke-width="3.5" />
+
+    <!-- Right Fork Upper -->
+    <path d="M 332 230 L 410 185" fill="none" stroke="#00bbff" stroke-width="6" filter="url(#lightningGlow)" opacity="0.6" />
+    <path d="M 332 230 L 410 185" fill="none" stroke="#ffffff" stroke-width="2" />
+
+    <!-- Right Fork Lower -->
+    <path d="M 400 245 L 430 310 L 485 295" fill="none" stroke="#00bbff" stroke-width="6" filter="url(#lightningGlow)" opacity="0.6" />
+    <path d="M 400 245 L 430 310 L 485 295" fill="none" stroke="#ffffff" stroke-width="2" />
+  </g>
+
+  <!-- The metallic clenched front fist/arm -->
+  <g id="clenched-fist">
+    <!-- Forearm and Wrist coming from the left / back -->
+    <path d="M 60 290 C 130 290, 160 300, 210 290 C 235 285, 240 270, 245 256 C 240 245, 230 235, 210 230 C 160 220, 130 230, 60 230 Z" fill="url(#metallicSkin)" stroke="#111" stroke-width="2.5" />
+    
+    <!-- Forearm Highlight line -->
+    <path d="M 70 240 C 130 240, 165 242, 215 248" fill="none" stroke="url(#edgeHighlight)" stroke-width="3" opacity="0.5" />
+
+    <!-- The Clenched Fist Fingers / Knuckles Facing Front -->
+    <!-- Knuckle 4 (Pinky finger) -->
+    <path d="M 205 272 C 205 286, 218 286, 222 272 C 224 265, 224 250, 216 250 C 208 250, 205 260, 205 272 Z" fill="url(#metallicSkin)" stroke="#111" stroke-width="2.5" />
+    <!-- Knuckle 3 (Ring finger) -->
+    <path d="M 220 278 C 220 294, 235 294, 239 278 C 242 268, 241 247, 231 247 C 221 247, 220 262, 220 278 Z" fill="url(#metallicSkin)" stroke="#111" stroke-width="2.5" />
+    <!-- Knuckle 2 (Middle finger) -->
+    <path d="M 237 282 C 237 300, 254 300, 258 282 C 262 268, 260 244, 248 244 C 236 244, 237 266, 237 282 Z" fill="url(#metallicSkin)" stroke="#111" stroke-width="2.5" />
+    <!-- Knuckle 1 (Index finger) -->
+    <path d="M 256 278 C 256 294, 271 294, 275 278 C 278 268, 277 247, 267 247 C 257 247, 256 262, 256 278 Z" fill="url(#metallicSkin)" stroke="#111" stroke-width="2.5" />
+
+    <!-- The Thumb overlapping Index finger knuckle -->
+    <path d="M 264 250 C 274 250, 292 258, 292 274 C 292 290, 270 292, 254 286 C 248 283, 246 277, 248 274 C 252 268, 258 266, 264 250 Z" fill="url(#metallicSkin)" stroke="#111" stroke-width="2.5" />
+
+    <!-- Small Highlights list to give volume to knuckles -->
+    <!-- Index highlighted curve -->
+    <path d="M 260 252 C 263 252, 271 258, 271 270" fill="none" stroke="url(#edgeHighlight)" stroke-width="2" opacity="0.6" />
+    <!-- Thumb highlighted curve -->
+    <path d="M 270 254 C 282 258, 286 266, 286 274" fill="none" stroke="url(#edgeHighlight)" stroke-width="2" opacity="0.7" />
+  </g>
+
+  <!-- Intense bright energy discharge overlapping the grip point -->
+  <g filter="url(#lightningGlow)">
+    <circle cx="256" cy="256" r="14" fill="#ffffff" opacity="0.9" />
+    <circle cx="256" cy="256" r="28" fill="#00bbff" opacity="0.6" />
+  </g>
+</svg>

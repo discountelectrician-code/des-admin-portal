@@ -85,7 +85,7 @@ export default function Navbar({ activeTab, setActiveTab, currentUser }: NavbarP
           {/* Logo Brand */}
           <div className="flex items-center select-none">
             <img 
-              src="/discount-electrical-service-logo.png" 
+              src="/discount-electrical-service-logo.svg" 
               alt="Discount Electrical Service Logo" 
               className="w-8 h-8 object-contain mr-2 shrink-0 transition-transform duration-300 hover:scale-105" 
               referrerPolicy="no-referrer"
