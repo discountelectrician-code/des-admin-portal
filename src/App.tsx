@@ -53,6 +53,8 @@ import OnboardingPage from './components/OnboardingPage';
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
+  const [isInitializing, setIsInitializing] = useState(true);
+  const [userTechLevel, setUserTechLevel] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'telemetry' | 'permissions' | 'payment' | 'quo_routing'>('telemetry');
 
   // Secure Single-Page routing path tracking
@@ -120,6 +122,7 @@ export default function App() {
   // Monitor Authentication State
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
+      setIsInitializing(true);
       setUser(currentUser);
       if (currentUser) {
         try {
@@ -130,8 +133,11 @@ export default function App() {
             const data = userDoc.data();
             setUserClaims(data.claims || { admin: false, pay: false, timecard: false });
             setProfileName(data.displayName || currentUser.displayName || 'Authorized Worker');
+            const techLevelVal = data.employeeProfile?.techLevel || null;
+            setUserTechLevel(techLevelVal);
             
-            if (isMasterAdmin) {
+            const isOwnerOrMasterRole = techLevelVal === 'Owner' || techLevelVal === 'Master' || isMasterAdmin;
+            if (isOwnerOrMasterRole) {
               setCurrentUserAccessStatus('Active');
             } else {
               setCurrentUserAccessStatus(data.accessStatus || data.employeeProfile?.accessStatus || 'Pending');
@@ -146,6 +152,7 @@ export default function App() {
             setUserClaims(defaultClaims);
             setProfileName(currentUser.displayName || (isMasterAdmin ? 'Chief Administrator' : 'Authorized Worker'));
             setCurrentUserAccessStatus(isMasterAdmin ? 'Active' : 'Pending');
+            setUserTechLevel(isMasterAdmin ? 'Master' : null);
             
             // Seed a Firestore document for this authenticated agent
             await setDoc(doc(db, 'users', currentUser.uid), {
@@ -168,12 +175,15 @@ export default function App() {
           });
           setProfileName(isMasterAdmin ? 'Chief Administrator' : 'Authorized Worker');
           setCurrentUserAccessStatus(isMasterAdmin ? 'Active' : 'Pending');
+          setUserTechLevel(isMasterAdmin ? 'Master' : null);
         }
       } else {
         setUserClaims({ admin: false, pay: false, timecard: false });
         setProfileName('');
         setCurrentUserAccessStatus(null);
+        setUserTechLevel(null);
       }
+      setIsInitializing(false);
       setLoading(false);
     });
     return () => unsubscribe();
@@ -302,7 +312,7 @@ export default function App() {
   };
 
   // Main Loading Shell
-  if (loading) {
+  if (isInitializing || loading) {
     return (
       <div className="min-h-screen bg-slate-50 flex flex-col justify-center items-center">
         <div className="bg-white border rounded-2xl shadow-md p-8 flex flex-col items-center max-w-sm text-center">
@@ -339,7 +349,10 @@ export default function App() {
   // If we are evaluating the 'admin' portal namespace, check if user lacks Admin claim OR isn't Active.
   // Instantly blocks standard technicians and redirects them to the Waiting Room.
   const isSeekingAdmin = hostDomain === 'admin';
-  const hasAdminRights = userClaims.admin || user?.email?.toLowerCase() === 'discountelectrician@gmail.com';
+  const hasAdminRights = userClaims.admin || 
+                         user?.email?.toLowerCase() === 'discountelectrician@gmail.com' ||
+                         userTechLevel === 'Master' ||
+                         userTechLevel === 'Owner';
   const isProfileActive = currentUserAccessStatus === 'Active';
 
   if (user && isSeekingAdmin && (!hasAdminRights || !isProfileActive)) {
