@@ -46,4 +46,5 @@ export interface TrackingEvent {
   message: string;
   status: 'info' | 'success' | 'warning' | 'error';
   details: string;
+  'Page Path'?: string;
 }

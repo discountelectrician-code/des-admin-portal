@@ -111,7 +111,8 @@ export default function TelemetryDashboard() {
           userEmail: data.userEmail || 'anonymous',
           message: data.message || '',
           status: data.status || 'info',
-          details: data.details || ''
+          details: data.details || '',
+          'Page Path': data['Page Path'] || data.path || data.url || data.currentPath || ''
         });
       });
       setEvents(loadedEvents);
@@ -126,6 +127,7 @@ export default function TelemetryDashboard() {
 
   // Utility to parse out the URL path/slug from any tracking event data
   const getEventPath = (evt: TrackingEvent): string | null => {
+    if (evt['Page Path']) return evt['Page Path'];
     if ((evt as any).path) return (evt as any).path;
     if ((evt as any).url) return (evt as any).url;
     if ((evt as any).currentPath) return (evt as any).currentPath;
