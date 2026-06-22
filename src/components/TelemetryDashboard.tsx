@@ -38,6 +38,17 @@ export default function TelemetryDashboard() {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedEventType, setSelectedEventType] = useState<'page_load' | 'action' | 'all'>('page_load');
 
+  // Live timer for Currently Active public site visitors
+  const [now, setNow] = useState<Date>(() => new Date());
+
+  // 10-Second Refresh: force Currently Active UI box to re-evaluate timestamps
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setNow(new Date());
+    }, 10000);
+    return () => clearInterval(timer);
+  }, []);
+
   // Calculates chronological bounds of the date range selected
   const currentRange = React.useMemo(() => {
     const start = new Date(baseDate);
@@ -336,6 +347,30 @@ export default function TelemetryDashboard() {
 
   const totalTopViews = top10Paths.reduce((sum, item) => sum + item.count, 0);
 
+  // 30-Second Window check for active public page loads
+  const activeVisitors = React.useMemo(() => {
+    const thirtySecondsAgo = now.getTime() - 30000;
+    return events.filter(evt => {
+      // Exclude backoffice logs so we only show public site traffic
+      const sub = (evt.subdomain || '').toLowerCase().trim();
+      const matchesBackoffice = 
+        sub === 'admin' || 
+        sub === 'pay' || 
+        sub === 'timecard' || 
+        sub.includes('admin') || 
+        sub.includes('pay') || 
+        sub.includes('timecard');
+      if (matchesBackoffice) return false;
+
+      // Ensure it is a page load
+      const isLoad = evt.eventType === 'page_load' || getEventPath(evt) !== null;
+      if (!isLoad) return false;
+
+      const evtTime = getEventDate(evt).getTime();
+      return evtTime >= thirtySecondsAgo && evtTime <= now.getTime();
+    });
+  }, [events, now]);
+
   return (
     <div id="telemetry_seo_overhaul_grid" className="space-y-6 max-w-7xl mx-auto px-2">
       
@@ -409,6 +444,62 @@ export default function TelemetryDashboard() {
 
         </div>
 
+      </div>
+
+      {/* Currently Active Live Panel */}
+      <div id="currently_active_live_card" className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm flex flex-col md:flex-row items-center justify-between gap-4">
+        <div className="flex items-center space-x-4">
+          <div className="relative">
+            {/* Pulsing Green Indicator */}
+            <span className="flex h-3.5 w-3.5 relative">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-3.5 w-3.5 bg-emerald-500"></span>
+            </span>
+          </div>
+          <div>
+            <div className="flex items-center space-x-2">
+              <h2 className="font-extrabold text-slate-900 text-sm md:text-base tracking-tight font-sans">
+                {activeVisitors.length} Active Visitor{activeVisitors.length === 1 ? '' : 's'}
+              </h2>
+              <span className="text-[10px] bg-emerald-50 text-emerald-700 border border-emerald-100 font-bold px-2 py-0.5 rounded-full uppercase tracking-wider font-mono">
+                Live (30s window)
+              </span>
+            </div>
+            <p className="text-[11px] text-slate-400 mt-0.5">
+              Refreshes in real-time. Showing page views on the public site inside the last 30 seconds.
+            </p>
+          </div>
+        </div>
+
+        {/* List of active paths */}
+        <div className="flex-1 w-full sm:w-auto flex items-center justify-start md:justify-end gap-2 overflow-x-auto py-1">
+          {activeVisitors.length === 0 ? (
+            <span className="text-xs text-slate-400 font-medium italic">
+              Monitoring public traffic streams... No active visits right now.
+            </span>
+          ) : (
+            <div className="flex items-center gap-2 overflow-x-auto max-w-full">
+              <span className="text-[10px] text-slate-400 font-bold font-mono tracking-wider uppercase shrink-0">Viewing:</span>
+              <div className="flex items-center gap-2 overflow-x-auto">
+                {activeVisitors.slice(0, 4).map((evt) => {
+                  const pathVal = getEventPath(evt) || '/';
+                  const normPath = normalizePath(pathVal);
+                  return (
+                    <div key={evt.id} className="bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 text-xs font-mono font-medium text-slate-700 flex items-center space-x-1.5 shrink-0 shadow-xs">
+                      <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-pulse"></span>
+                      <span className="max-w-[120px] truncate" title={normPath}>{normPath}</span>
+                    </div>
+                  );
+                })}
+                {activeVisitors.length > 4 && (
+                  <span className="text-[10px] font-bold font-mono bg-indigo-50 text-indigo-700 px-2 py-1 rounded-lg shrink-0">
+                    +{activeVisitors.length - 4} more
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* 2. MAIN BODY WRAP: TOP SEO PERFORMANCE GRID & DENSE STREAM */}
