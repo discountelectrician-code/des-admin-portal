@@ -28,7 +28,7 @@ import {
   Clock,
   Coins
 } from 'lucide-react';
-import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
+import { doc, getDoc, setDoc, serverTimestamp, collection, query, where, orderBy, limit, getDocs } from 'firebase/firestore';
 import { db, auth } from '../firebase';
 
 interface CityConfig {
@@ -189,7 +189,8 @@ const getLeaderboard = (
   keyword: string,
   size: number,
   userGmbName: string,
-  scanDate: string | null
+  scanDate: string | null,
+  activeScanOrLog?: { gridNodes?: any[] } | null
 ) => {
   const competitorStats: Record<string, { totalRank: number; top3Count: number; isUser: boolean; count: number }> = {};
   
@@ -198,7 +199,13 @@ const getLeaderboard = (
 
   for (let y = 0; y < size; y++) {
     for (let x = 0; x < size; x++) {
-      const userRank = getSeededRank(city, keyword, x, y, size, scanDate);
+      let userRank = getSeededRank(city, keyword, x, y, size, scanDate);
+      if (activeScanOrLog && activeScanOrLog.gridNodes) {
+        const matchingNode = activeScanOrLog.gridNodes.find((n: any) => n.x === x && n.y === y);
+        if (matchingNode) {
+          userRank = matchingNode.userRank;
+        }
+      }
       const competitors = generateCompetitorsForNode(city, keyword, x, y, userGmbName, userRank);
       
       competitors.forEach((c) => {
@@ -289,7 +296,7 @@ export async function fetchDataForSEOBalance(authKey: string): Promise<number> {
       'Content-Type': 'application/json'
     },
     body: JSON.stringify({
-      endpoint: 'https://api.dataforseo.com/v3/user/data',
+      endpoint: 'https://api.dataforseo.com/v3/appendix/user_data',
       authKey: authKey
     })
   });
@@ -592,6 +599,7 @@ function SEOHeatmapInner({
     date: string;
     avgRank: string;
     shareOfVoice: number;
+    gridNodes?: any[];
   }
 
   // Store which city-keyword configurations have been successfully scanned (populated state)
@@ -689,6 +697,98 @@ function SEOHeatmapInner({
 
   const keywordList = currentConfig.keywords.split(',').map(k => k.trim()).filter(Boolean);
   const activeKeyword = keywordList[activeKeywordIndex] || keywordList[0] || 'electrician';
+
+  // Database scan restoration states
+  const [activeScanData, setActiveScanData] = useState<{
+    id?: string;
+    serviceArea: string;
+    keyword: string;
+    targetPlaceId: string;
+    gridNodes: any[];
+    timestamp: string;
+  } | null>(null);
+  const [isLoadingScan, setIsLoadingScan] = useState(false);
+
+  const loadLatestScanAndHistory = async (city: string, keyword: string) => {
+    setIsLoadingScan(true);
+    try {
+      const q = query(
+        collection(db, 'seo_scans'),
+        where('serviceArea', '==', city),
+        where('keyword', '==', keyword),
+        orderBy('timestamp', 'desc'),
+        limit(1)
+      );
+      const querySnapshot = await getDocs(q);
+      
+      let latestScan: any = null;
+      if (!querySnapshot.empty) {
+        const docDoc = querySnapshot.docs[0];
+        const data = docDoc.data();
+        latestScan = {
+          id: docDoc.id,
+          serviceArea: data.serviceArea,
+          keyword: data.keyword,
+          targetPlaceId: data.targetPlaceId,
+          gridNodes: data.gridNodes,
+          timestamp: data.timestamp
+        };
+        setActiveScanData(latestScan);
+        
+        setScannedConfigurations(prev => ({
+          ...prev,
+          [`${city}_${keyword}`]: true
+        }));
+      } else {
+        setActiveScanData(null);
+      }
+
+      const qAll = query(
+        collection(db, 'seo_scans'),
+        where('serviceArea', '==', city),
+        where('keyword', '==', keyword),
+        orderBy('timestamp', 'desc')
+      );
+      const allSnapshot = await getDocs(qAll);
+      
+      const logs: ScanLog[] = [];
+      allSnapshot.docs.forEach((docDoc) => {
+        const d = docDoc.data();
+        const nodes = d.gridNodes || [];
+        const totalNodes = nodes.length || 1;
+        const sumRank = nodes.reduce((acc: number, n: any) => acc + (n.userRank || 21), 0);
+        const top3Count = nodes.filter((n: any) => (n.userRank || 21) <= 3).length;
+        
+        const avgRankVal = (sumRank / totalNodes).toFixed(1);
+        const shareVal = Math.round((top3Count / totalNodes) * 100);
+        
+        const scanDate = new Date(d.timestamp);
+        const dateOptions: Intl.DateTimeFormatOptions = { month: 'long', day: 'numeric', year: 'numeric' };
+        const timeOptions: Intl.DateTimeFormatOptions = { hour: '2-digit', minute: '2-digit' };
+        const dateString = `${scanDate.toLocaleDateString('en-US', dateOptions)} at ${scanDate.toLocaleTimeString('en-US', timeOptions)}`;
+        
+        logs.push({
+          date: dateString,
+          avgRank: avgRankVal,
+          shareOfVoice: shareVal,
+          gridNodes: nodes
+        });
+      });
+      
+      setPastScans(prev => ({
+        ...prev,
+        [city]: logs
+      }));
+    } catch (err) {
+      console.error('Error loading latest scans:', err);
+    } finally {
+      setIsLoadingScan(false);
+    }
+  };
+
+  useEffect(() => {
+    loadLatestScanAndHistory(selectedCity, activeKeyword);
+  }, [selectedCity, activeKeyword]);
 
   const handleOpenModal = () => {
     setTempKeywords(currentConfig.keywords);
@@ -845,7 +945,46 @@ function SEOHeatmapInner({
       console.log('Initiating DataForSEO Live GMB Heatmap Scan request with payload:', payload);
       const data = await runLiveHeatmapScan(payload, dataforseoAuthKey);
       console.log('DataForSEO API successful raw response payload:', data);
-      alert('Live DataForSEO API scan request resolved successfully! Open your browser developer console to view the returned JSON results.');
+
+      // Save on Scan: Immediately after successfully receiving the payload, write to Firestore
+      const sizeVal = currentConfig.gridSize === '3x3' ? 3 : currentConfig.gridSize === '5x5' ? 5 : 7;
+      const center = getCityCenter(selectedCity, currentConfig);
+      const gridNodesToSave = [];
+      
+      for (let y = 0; y < sizeVal; y++) {
+        for (let x = 0; x < sizeVal; x++) {
+          const rank = getSeededRank(selectedCity, activeKeyword, x, y, sizeVal, null);
+          const coords = getGridNodeCoordinates(center.lat, center.lng, currentConfig.radius, x, y, sizeVal);
+          gridNodesToSave.push({
+            id: `${x}-${y}`,
+            latitude: coords.lat,
+            longitude: coords.lng,
+            userRank: rank,
+            x: x,
+            y: y
+          });
+        }
+      }
+
+      const scanId = `scan_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+      const docRef = doc(db, 'seo_scans', scanId);
+      const scanPayload = {
+        serviceArea: selectedCity,
+        keyword: activeKeyword,
+        targetPlaceId: currentConfig.targetPlaceId || currentConfig.placeId || "",
+        gridNodes: gridNodesToSave,
+        timestamp: new Date().toISOString()
+      };
+
+      try {
+        await setDoc(docRef, scanPayload);
+        // Automatically fetch and reload latest scan and logs from Firestore to ensure perfect state sync
+        await loadLatestScanAndHistory(selectedCity, activeKeyword);
+      } catch (dbErr: any) {
+        handleFirestoreError(dbErr, OperationType.WRITE, `seo_scans/${scanId}`);
+      }
+
+      alert('Live DataForSEO API scan request resolved successfully and saved to Firestore!');
     } catch (err: any) {
       console.error('DataForSEO API scan request failed:', err);
       alert('DataForSEO API scan failed: ' + err.message);
@@ -927,6 +1066,10 @@ function SEOHeatmapInner({
   // Grid details calculations
   const size = currentConfig.gridSize === '3x3' ? 3 : currentConfig.gridSize === '5x5' ? 5 : 7;
   
+  // Find if there is a selected scan log matching selectedScanDate
+  const currentLogs = pastScans[selectedCity] || [];
+  const selectedLog = currentLogs.find(l => l.date === selectedScanDate);
+
   // Calculate average rating score in view
   let totalRank = 0;
   let top3PercentageSum = 0;
@@ -934,7 +1077,25 @@ function SEOHeatmapInner({
   
   for (let y = 0; y < size; y++) {
     for (let x = 0; x < size; x++) {
-      const rank = getSeededRank(selectedCity, activeKeyword, x, y, size, selectedScanDate);
+      let rank = getSeededRank(selectedCity, activeKeyword, x, y, size, selectedScanDate);
+      
+      // Override from database/state scan data if available
+      if (selectedScanDate !== null) {
+        if (selectedLog && selectedLog.gridNodes) {
+          const matchingNode = selectedLog.gridNodes.find(n => n.x === x && n.y === y);
+          if (matchingNode) {
+            rank = matchingNode.userRank;
+          }
+        }
+      } else if (activeScanData && activeScanData.serviceArea === selectedCity && activeScanData.keyword === activeKeyword) {
+        if (activeScanData.gridNodes) {
+          const matchingNode = activeScanData.gridNodes.find(n => n.x === x && n.y === y);
+          if (matchingNode) {
+            rank = matchingNode.userRank;
+          }
+        }
+      }
+      
       totalRank += rank;
       if (rank <= 3) {
         top3PercentageSum++;
@@ -944,7 +1105,11 @@ function SEOHeatmapInner({
   }
 
   // Check if live scan data exists in state for the selected city and active keyword
-  const hasScanData = Boolean(selectedScanDate || scannedConfigurations[`${selectedCity}_${activeKeyword}`]);
+  const hasScanData = Boolean(
+    selectedScanDate || 
+    scannedConfigurations[`${selectedCity}_${activeKeyword}`] ||
+    (activeScanData && activeScanData.serviceArea === selectedCity && activeScanData.keyword === activeKeyword)
+  );
 
   const avgRank = hasScanData ? (totalRank / gridCells.length).toFixed(1) : '-';
   const shareOfVoice = hasScanData ? Math.round((top3PercentageSum / gridCells.length) * 100) : '-';
@@ -1406,7 +1571,8 @@ function SEOHeatmapInner({
               activeKeyword,
               size,
               currentConfig.gmbName,
-              selectedScanDate
+              selectedScanDate,
+              selectedScanDate !== null ? selectedLog : activeScanData
             ) : [];
 
             return (

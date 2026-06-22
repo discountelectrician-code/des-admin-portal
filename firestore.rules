@@ -120,6 +120,17 @@ service cloud.firestore {
         && (data.createdAt is string || data.createdAt is timestamp);
     }
 
+    function isValidSEOScan(data) {
+      return data.keys().hasAll(['serviceArea', 'keyword', 'gridNodes', 'timestamp'])
+        && data.serviceArea is string
+        && data.serviceArea.size() <= 200
+        && data.keyword is string
+        && data.keyword.size() <= 200
+        && data.gridNodes is list
+        && data.gridNodes.size() <= 121
+        && (!('targetPlaceId' in data) || data.targetPlaceId is string || data.targetPlaceId == null);
+    }
+
     // 4. Entity Access Path Matching
     
     // User Permissions & Custom Claims Sync collection
@@ -211,6 +222,13 @@ service cloud.firestore {
 
       // Only central administrators can revoke/delete tickets
       allow delete: if isAdmin();
+    }
+
+    // Historical GMB Heatmap Scan results
+    match /seo_scans/{scanId} {
+      allow read: if true;
+      allow create: if isValidId(scanId) && isValidSEOScan(incoming());
+      allow update, delete: if isAdmin();
     }
   }
 }

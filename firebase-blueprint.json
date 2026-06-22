@@ -117,6 +117,24 @@
         "updatedBy": { "type": "string", "description": "User email or UID who updated the settings." }
       },
       "required": []
+    },
+    "seo_scan": {
+      "title": "SEO Heatmap Scan",
+      "description": "Represents persistent historical GMB grid ranking search results.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "The unique document ID representing the scan." },
+        "serviceArea": { "type": "string", "description": "The city or service area of the scan." },
+        "keyword": { "type": "string", "description": "The target search keyword analyzed." },
+        "targetPlaceId": { "type": "string", "description": "The Google Maps place identifier of the business." },
+        "timestamp": { "type": "string", "format": "date-time", "description": "When the scan was initiated." },
+        "gridNodes": {
+          "type": "array",
+          "description": "A collection of individual geographic grid nodes comprising ranks.",
+          "items": { "type": "object" }
+        }
+      },
+      "required": ["serviceArea", "keyword", "gridNodes", "timestamp"]
     }
   },
   "firestore": {
@@ -143,6 +161,10 @@
     "service_requests/{requestId}": {
       "schema": "service_request",
       "description": "Stores service booking requests showing complete or draft/abandoned status leads."
+    },
+    "seo_scans/{scanId}": {
+      "schema": "seo_scan",
+      "description": "Stores GMB grid metric scans for geographical search optimization."
     }
   }
 }
