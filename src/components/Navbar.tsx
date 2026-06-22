@@ -19,12 +19,13 @@ import {
   HelpCircle,
   CreditCard,
   Phone,
-  MessageSquare
+  MessageSquare,
+  Map
 } from 'lucide-react';
 
 interface NavbarProps {
-  activeTab: 'telemetry' | 'permissions' | 'payment' | 'quo_routing' | 'lead_recovery';
-  setActiveTab: (tab: 'telemetry' | 'permissions' | 'payment' | 'quo_routing' | 'lead_recovery') => void;
+  activeTab: 'telemetry' | 'permissions' | 'payment' | 'quo_routing' | 'lead_recovery' | 'seo_heatmap';
+  setActiveTab: (tab: 'telemetry' | 'permissions' | 'payment' | 'quo_routing' | 'lead_recovery' | 'seo_heatmap') => void;
   currentUser: User | null;
 }
 
@@ -114,6 +115,18 @@ export default function Navbar({ activeTab, setActiveTab, currentUser }: NavbarP
               >
                 <Activity className="w-4 h-4" />
                 <span>Live Telemetry Panel</span>
+              </button>
+
+              <button
+                onClick={() => setActiveTab('seo_heatmap')}
+                className={`flex items-center space-x-2 px-4 py-2 rounded-lg font-semibold transition ${
+                  activeTab === 'seo_heatmap' 
+                    ? 'bg-slate-800 text-amber-400 border border-slate-700 shadow-sm' 
+                    : 'text-slate-350 hover:text-white hover:bg-slate-800/40'
+                }`}
+              >
+                <Map className="w-4 h-4" />
+                <span>SEO Heatmap</span>
               </button>
 
               <button
@@ -212,6 +225,15 @@ export default function Navbar({ activeTab, setActiveTab, currentUser }: NavbarP
             >
               <Activity className="w-5 h-5" />
               <span className="text-[9px] tracking-tight text-center truncate w-full">Telemetry</span>
+            </button>
+            <button
+              onClick={() => setActiveTab('seo_heatmap')}
+              className={`flex flex-col items-center justify-center space-y-1 flex-1 transition cursor-pointer border-none bg-transparent ${
+                activeTab === 'seo_heatmap' ? 'text-amber-400 font-bold' : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <Map className="w-5 h-5" />
+              <span className="text-[9px] tracking-tight text-center truncate w-full">SEO Heatmap</span>
             </button>
             <button
               onClick={() => setActiveTab('permissions')}

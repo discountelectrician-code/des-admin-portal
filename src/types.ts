@@ -48,3 +48,36 @@ export interface TrackingEvent {
   details: string;
   'Page Path'?: string;
 }
+
+export interface SEOAreaProfile {
+  id: string;
+  name: string;
+  targetKeywords: string;
+  targetPlaceId: string;
+  radius: number;
+  gridSize: '3x3' | '5x5' | '7x7';
+  frequency: 'Manual Only' | 'Daily' | 'Weekly' | 'Bi-Weekly' | 'Monthly';
+  estimatedCost: number;
+}
+
+export interface HeatmapScan {
+  id: string;
+  areaId: string;
+  timestamp: any;
+  averageRank: number;
+  shareOfVoice: number;
+}
+
+export interface GridNode {
+  id: string;
+  latitude: number;
+  longitude: number;
+  userRank: number;
+  topCompetitors: Array<{
+    name: string;
+    rank: number;
+    reviewCount: number;
+    placeId: string;
+  }>;
+}
+
