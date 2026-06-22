@@ -10,14 +10,10 @@ export interface SEOAreaProfilePayload {
 /**
  * Initiates a live local maps task request using DataForSEO's Google Maps SERP API.
  */
-export async function runLiveHeatmapScan(areaProfile: SEOAreaProfilePayload): Promise<any> {
-  const authKey = localStorage.getItem('dataforseo_auth_key');
+export async function runLiveHeatmapScan(areaProfile: SEOAreaProfilePayload, authKey: string): Promise<any> {
   if (!authKey) {
     throw new Error('DataForSEO Auth Key is not configured. Please open Settings and supply your Base64 Auth Key.');
   }
-
-  // Define target endpoint
-  const url = 'https://api.dataforseo.com/v3/serp/google/maps/task_post';
 
   // Format arguments for DataForSEO mapping
   // Note: We construct a task array as expected by the v3/serp/google/maps/task_post endpoint.
@@ -32,18 +28,22 @@ export async function runLiveHeatmapScan(areaProfile: SEOAreaProfilePayload): Pr
     }
   ];
 
-  const response = await fetch(url, {
+  const response = await fetch('/api/dataforseo-proxy', {
     method: 'POST',
     headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Basic ${authKey}`
+      'Content-Type': 'application/json'
     },
-    body: JSON.stringify(payload)
+    body: JSON.stringify({
+      endpoint: 'https://api.dataforseo.com/v3/serp/google/maps/task_post',
+      payload: payload,
+      authKey: authKey
+    })
   });
 
   if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`DataForSEO Request failed: Status ${response.status} - ${errorText}`);
+    const errorJson = await response.json().catch(() => ({}));
+    const errorText = errorJson.details || errorJson.error || `Status ${response.status}`;
+    throw new Error(`DataForSEO Request failed through backend proxy: ${errorText}`);
   }
 
   const data = await response.json();

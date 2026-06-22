@@ -282,16 +282,21 @@ function handleFirestoreError(error: unknown, operationType: OperationType, path
  * Fetches the user's remaining balance from DataForSEO
  */
 export async function fetchDataForSEOBalance(authKey: string): Promise<number> {
-  const url = 'https://api.dataforseo.com/v3/user/data';
-  const response = await fetch(url, {
-    method: 'GET',
+  const proxyUrl = '/api/dataforseo-proxy';
+  const response = await fetch(proxyUrl, {
+    method: 'POST',
     headers: {
-      'Authorization': `Basic ${authKey}`
-    }
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      endpoint: 'https://api.dataforseo.com/v3/user/data',
+      authKey: authKey
+    })
   });
 
   if (!response.ok) {
-    throw new Error(`DataForSEO balance fetch failed: Status ${response.status} - ${response.statusText}`);
+    const errData = await response.json().catch(() => ({}));
+    throw new Error(`DataForSEO balance fetch failed: ${errData.details || errData.error || response.statusText}`);
   }
 
   const data = await response.json();
@@ -838,7 +843,7 @@ function SEOHeatmapInner({
       };
       
       console.log('Initiating DataForSEO Live GMB Heatmap Scan request with payload:', payload);
-      const data = await runLiveHeatmapScan(payload);
+      const data = await runLiveHeatmapScan(payload, dataforseoAuthKey);
       console.log('DataForSEO API successful raw response payload:', data);
       alert('Live DataForSEO API scan request resolved successfully! Open your browser developer console to view the returned JSON results.');
     } catch (err: any) {
