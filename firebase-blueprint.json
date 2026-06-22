@@ -105,6 +105,18 @@
         "techAssignee": { "type": "string" }
       },
       "required": ["firstName", "phone", "email", "status"]
+    },
+    "admin_settings": {
+      "title": "Admin Settings",
+      "description": "System settings containing API keys for Google Maps and DataForSEO.",
+      "type": "object",
+      "properties": {
+        "gmaps_api_key": { "type": "string", "description": "The API key for Google Maps." },
+        "dataforseo_auth_key": { "type": "string", "description": "The Base64 authentication key for DataForSEO." },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "When the settings were last updated." },
+        "updatedBy": { "type": "string", "description": "User email or UID who updated the settings." }
+      },
+      "required": []
     }
   },
   "firestore": {
@@ -119,6 +131,10 @@
     "settings/payment_config": {
       "schema": "payment_config",
       "description": "Stores the central payment gateway toggle setting."
+    },
+    "settings/admin_settings": {
+      "schema": "admin_settings",
+      "description": "Stores the central API credentials and keys for Google Maps and DataForSEO."
     },
     "invites/{inviteId}": {
       "schema": "invite",

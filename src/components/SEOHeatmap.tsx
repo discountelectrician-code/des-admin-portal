@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { runLiveHeatmapScan } from '../lib/dataforseo';
 import { APIProvider, Map as GoogleMap, AdvancedMarker, useMapsLibrary } from '@vis.gl/react-google-maps';
 import { 
@@ -25,8 +25,11 @@ import {
   Trash2,
   History,
   Calendar,
-  Clock
+  Clock,
+  Coins
 } from 'lucide-react';
+import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
+import { db, auth } from '../firebase';
 
 interface CityConfig {
   keywords: string;
@@ -228,22 +231,141 @@ const getLeaderboard = (
     .slice(0, 5);
 };
 
+enum OperationType {
+  CREATE = 'create',
+  UPDATE = 'update',
+  DELETE = 'delete',
+  LIST = 'list',
+  GET = 'get',
+  WRITE = 'write',
+}
+
+interface FirestoreErrorInfo {
+  error: string;
+  operationType: OperationType;
+  path: string | null;
+  authInfo: {
+    userId?: string | null;
+    email?: string | null;
+    emailVerified?: boolean | null;
+    isAnonymous?: boolean | null;
+    tenantId?: string | null;
+    providerInfo?: {
+      providerId?: string | null;
+      email?: string | null;
+    }[];
+  }
+}
+
+function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
+  const errInfo: FirestoreErrorInfo = {
+    error: error instanceof Error ? error.message : String(error),
+    authInfo: {
+      userId: auth.currentUser?.uid,
+      email: auth.currentUser?.email,
+      emailVerified: auth.currentUser?.emailVerified,
+      isAnonymous: auth.currentUser?.isAnonymous,
+      tenantId: auth.currentUser?.tenantId,
+      providerInfo: auth.currentUser?.providerData?.map(provider => ({
+        providerId: provider.providerId,
+        email: provider.email,
+      })) || []
+    },
+    operationType,
+    path
+  };
+  console.error('Firestore Error: ', JSON.stringify(errInfo));
+  throw new Error(JSON.stringify(errInfo));
+}
+
+/**
+ * Fetches the user's remaining balance from DataForSEO
+ */
+export async function fetchDataForSEOBalance(authKey: string): Promise<number> {
+  const url = 'https://api.dataforseo.com/v3/user/data';
+  const response = await fetch(url, {
+    method: 'GET',
+    headers: {
+      'Authorization': `Basic ${authKey}`
+    }
+  });
+
+  if (!response.ok) {
+    throw new Error(`DataForSEO balance fetch failed: Status ${response.status} - ${response.statusText}`);
+  }
+
+  const data = await response.json();
+  const balance = data?.tasks?.[0]?.result?.[0]?.money?.balance;
+  if (typeof balance !== 'number') {
+    throw new Error('Invalid balance field structure in the DataForSEO api response.');
+  }
+
+  return balance;
+}
+
 export default function SEOHeatmap() {
-  const [activeGmapsApiKey, setActiveGmapsApiKey] = useState(() => localStorage.getItem('gmaps_api_key') || '');
+  const [activeGmapsApiKey, setActiveGmapsApiKey] = useState('');
+  const [activeDataforseoAuthKey, setActiveDataforseoAuthKey] = useState('');
+  const [isLoadingKeys, setIsLoadingKeys] = useState(true);
+
+  useEffect(() => {
+    async function fetchKeys() {
+      setIsLoadingKeys(true);
+      try {
+        const docRef = doc(db, 'settings', 'admin_settings');
+        const docSnap = await getDoc(docRef);
+        if (docSnap.exists()) {
+          const data = docSnap.data();
+          if (data.gmaps_api_key) {
+            setActiveGmapsApiKey(data.gmaps_api_key);
+          }
+          if (data.dataforseo_auth_key) {
+            setActiveDataforseoAuthKey(data.dataforseo_auth_key);
+          }
+        }
+      } catch (error) {
+        console.error("Error loading keys from Firestore admin_settings:", error);
+      } finally {
+        setIsLoadingKeys(false);
+      }
+    }
+    fetchKeys();
+  }, []);
+
+  const handleKeysChange = (newGmaps: string, newDataforseo: string) => {
+    setActiveGmapsApiKey(newGmaps);
+    setActiveDataforseoAuthKey(newDataforseo);
+  };
 
   const hasGmapsKey = Boolean(activeGmapsApiKey.trim());
 
   if (hasGmapsKey) {
     return (
       <APIProvider apiKey={activeGmapsApiKey.trim()} version="weekly" libraries={['places']}>
-        <SEOHeatmapInner key={activeGmapsApiKey.trim()} gmapsKey={activeGmapsApiKey.trim()} onKeyChange={setActiveGmapsApiKey} />
+        <SEOHeatmapInner
+          key={activeGmapsApiKey.trim()}
+          gmapsKey={activeGmapsApiKey.trim()}
+          dataforseoAuthKey={activeDataforseoAuthKey.trim()}
+          isLoadingKeys={isLoadingKeys}
+          onKeysChange={handleKeysChange}
+        />
       </APIProvider>
     );
   }
-  return <SEOHeatmapInner key="no-key" gmapsKey="" onKeyChange={setActiveGmapsApiKey} />;
+  return (
+    <SEOHeatmapInner
+      key="no-key"
+      gmapsKey=""
+      dataforseoAuthKey={activeDataforseoAuthKey.trim()}
+      isLoadingKeys={isLoadingKeys}
+      onKeysChange={handleKeysChange}
+    />
+  );
 }
 
 function LivePlacesSearch({
+  gmapsKey,
+  selectedCity,
   tempGmbName,
   setTempGmbName,
   tempPlaceId,
@@ -252,7 +374,10 @@ function LivePlacesSearch({
   setSearchedProfiles,
   searchingGmb,
   setSearchingGmb,
+  isLoadingKeys,
 }: {
+  gmapsKey: string;
+  selectedCity: string;
   tempGmbName: string;
   setTempGmbName: (val: string) => void;
   tempPlaceId: string;
@@ -261,88 +386,214 @@ function LivePlacesSearch({
   setSearchedProfiles: (val: Array<{ name: string; placeId: string; formatted_address: string }>) => void;
   searchingGmb: boolean;
   setSearchingGmb: (val: boolean) => void;
+  isLoadingKeys: boolean;
 }) {
   const placesLib = useMapsLibrary('places');
   const [errorMsg, setErrorMsg] = useState('');
+  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+  
+  const containerRef = useRef<HTMLDivElement>(null);
+  const selectInProgressRef = useRef(false);
 
-  const handleLiveSearch = async () => {
-    if (!placesLib) {
-      setErrorMsg('Places library is loading. Please try again.');
+  // Click outside listener to dismiss absolute autocomplete dropdown
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
+        setIsDropdownOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  // Debounced listener watching tempGmbName typing
+  useEffect(() => {
+    const query = tempGmbName.trim();
+    if (!query) {
+      setSearchedProfiles([]);
+      setIsDropdownOpen(false);
       return;
     }
-    if (!tempGmbName.trim()) return;
+
+    if (selectInProgressRef.current) {
+      selectInProgressRef.current = false;
+      return;
+    }
+
+    if (query.length < 2) {
+      setSearchedProfiles([]);
+      setIsDropdownOpen(false);
+      return;
+    }
+
+    const delayDebounceFn = setTimeout(() => {
+      triggerSearch(query);
+    }, 300);
+
+    return () => clearTimeout(delayDebounceFn);
+  }, [tempGmbName]);
+
+  const triggerSearch = async (query: string) => {
     setSearchingGmb(true);
     setErrorMsg('');
-    setSearchedProfiles([]);
 
-    try {
-      const response = await placesLib.Place.searchByText({
-        textQuery: tempGmbName.trim(),
-        fields: ['id', 'displayName', 'formattedAddress'],
-        maxResultCount: 10,
-      });
-
-      if (response && response.places && response.places.length > 0) {
-        const results = response.places.map((p) => ({
-          name: p.displayName || '',
-          placeId: p.id || '',
-          formatted_address: p.formattedAddress || '',
-        }));
-        setSearchedProfiles(results);
-      } else {
-        setSearchedProfiles([]);
-        setErrorMsg('No matches found for this query.');
+    if (gmapsKey) {
+      // Live Google Places integration
+      if (!placesLib) {
+        setErrorMsg('Places API is loading, please type further...');
+        setSearchingGmb(false);
+        return;
       }
-    } catch (err: any) {
-      console.error('Google Places live search error:', err);
-      setErrorMsg('Places search failed. Check your API key limits and console logs.');
-    } finally {
-      setSearchingGmb(false);
+      try {
+        const response = await placesLib.Place.searchByText({
+          textQuery: query,
+          fields: ['id', 'displayName', 'formattedAddress'],
+          maxResultCount: 6,
+        });
+
+        if (response && response.places && response.places.length > 0) {
+          const results = response.places.map((p) => ({
+            name: p.displayName || '',
+            placeId: p.id || '',
+            formatted_address: p.formattedAddress || '',
+          }));
+          setSearchedProfiles(results);
+          setIsDropdownOpen(true);
+        } else {
+          setSearchedProfiles([]);
+          setIsDropdownOpen(false);
+          setErrorMsg('No live matches found for this business.');
+        }
+      } catch (err: any) {
+        console.error('Google Places live search error:', err);
+        setErrorMsg('Live query failed. Verify API Key limits.');
+      } finally {
+        setSearchingGmb(false);
+      }
+    } else {
+      // Snappy built-in simulation for mock fallback mode
+      setTimeout(() => {
+        setSearchedProfiles([
+          {
+            name: `${query}`,
+            placeId: `ChIJ${Math.random().toString(36).substring(2, 9).toUpperCase()}`,
+            formatted_address: `${selectedCity}, TN, USA`
+          },
+          {
+            name: `${query} Middle TN Hub`,
+            placeId: `ChIJ${Math.random().toString(36).substring(2, 9).toUpperCase()}`,
+            formatted_address: `100 Spark Blvd, Nashville, TN, USA`
+          },
+          {
+            name: `${query} Premium Network`,
+            placeId: `ChIJ${Math.random().toString(36).substring(2, 9).toUpperCase()}`,
+            formatted_address: `45 Powerline Way, Brentwood, TN, USA`
+          }
+        ]);
+        setIsDropdownOpen(true);
+        setSearchingGmb(false);
+      }, 200);
     }
   };
 
   return (
-    <div className="space-y-1.5 bg-white">
-      <div className="flex gap-2">
+    <div ref={containerRef} className="relative space-y-1 bg-white">
+      <div className="relative flex items-center bg-white rounded-xl border border-slate-300 focus-within:ring-2 focus-within:ring-indigo-550 transition-shadow">
         <input
           type="text"
           required
-          value={tempGmbName}
+          disabled={isLoadingKeys}
+          value={isLoadingKeys ? "Loading credentials..." : tempGmbName}
           onChange={(e) => {
             setTempGmbName(e.target.value);
-            setSearchedProfiles([]);
+            setIsDropdownOpen(true);
           }}
-          placeholder="Search real Google Places..."
-          className="flex-1 px-3 py-2 text-xs rounded-xl border border-slate-300 text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-550 transition bg-white"
+          placeholder={isLoadingKeys ? "Loading Gmaps API credential..." : (gmapsKey ? "Search real Google Places..." : "Search Google Business profiles (simulated)...")}
+          className="w-full px-3 py-2 text-xs text-slate-800 placeholder-slate-400 focus:outline-none bg-transparent pr-8 border-none disabled:opacity-50"
         />
-        <button
-          type="button"
-          onClick={handleLiveSearch}
-          disabled={searchingGmb || !tempGmbName.trim()}
-          className="px-3.5 py-2 bg-indigo-650 hover:bg-indigo-700 disabled:bg-indigo-300 text-white font-bold text-xs rounded-xl transition flex items-center justify-center gap-1.5 cursor-pointer border-none"
-        >
-          {searchingGmb ? (
-            <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-          ) : (
-            <Search className="w-3.5 h-3.5" />
-          )}
-          <span>Search</span>
-        </button>
+        {searchingGmb && (
+          <div className="absolute right-3.5 flex items-center justify-center p-1 bg-white rounded-full">
+            <RefreshCw className="w-3.5 h-3.5 animate-spin text-slate-400" />
+          </div>
+        )}
       </div>
+
       {errorMsg && (
-        <p className="text-[10px] text-red-500 font-sans tracking-tight">{errorMsg}</p>
+        <p className="text-[10px] text-red-500 font-sans tracking-tight px-1">{errorMsg}</p>
+      )}
+
+      {/* Floating absolute positioned dropdown */}
+      {isDropdownOpen && searchedProfiles.length > 0 && (
+        <div className="absolute left-0 right-0 top-full mt-1.5 border border-slate-200 rounded-xl bg-white p-2.5 space-y-1.5 max-h-[220px] overflow-y-auto shadow-2xl z-50 animate-fadeIn">
+          <p className="text-[9px] text-slate-400 font-bold uppercase tracking-wider px-1">
+            {gmapsKey ? 'Google Maps Autocomplete Results:' : 'Simulated Autocomplete Results:'}
+          </p>
+          <div className="space-y-1">
+            {searchedProfiles.map((p) => (
+              <button
+                key={p.placeId}
+                type="button"
+                onClick={() => {
+                  selectInProgressRef.current = true;
+                  setTempGmbName(p.name);
+                  setTempPlaceId(p.placeId);
+                  setSearchedProfiles([]);
+                  setIsDropdownOpen(false);
+                }}
+                className="w-full text-left p-2 rounded-lg bg-white hover:bg-indigo-50 border border-slate-200 hover:border-indigo-200 transition text-xs flex items-center justify-between cursor-pointer focus:outline-none focus:ring-2 focus:ring-indigo-550 gap-2"
+              >
+                <div className="min-w-0 flex-1">
+                  <p className="font-bold text-slate-800 truncate">{p.name}</p>
+                  <p className="text-[9px] text-slate-400 font-sans mt-0.5 truncate">{p.formatted_address}</p>
+                </div>
+                <code className="text-[9px] font-mono text-slate-500 bg-slate-100 p-0.5 px-1.5 rounded shrink-0">{p.placeId}</code>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {!gmapsKey && (
+        <div className="bg-amber-50 text-amber-950 p-2 text-[10px] rounded-lg font-sans border border-amber-150 flex items-center gap-1 mt-1 shrink-0">
+          <span className="font-extrabold text-amber-600">⚠️</span>
+          <span>Credential API Key required for live Places API (mock mode active)</span>
+        </div>
       )}
     </div>
   );
 }
 
-function SEOHeatmapInner({ gmapsKey, onKeyChange }: { key?: string; gmapsKey: string; onKeyChange: (val: string) => void }) {
+function SEOHeatmapInner({
+  gmapsKey,
+  dataforseoAuthKey,
+  isLoadingKeys,
+  onKeysChange,
+}: {
+  key?: string;
+  gmapsKey: string;
+  dataforseoAuthKey: string;
+  isLoadingKeys: boolean;
+  onKeysChange: (gmaps: string, dataforseo: string) => void;
+}) {
   const [configs, setConfigs] = useState<Record<string, CityConfig>>(INITIAL_CITY_CONFIGS);
   const [selectedCity, setSelectedCity] = useState<string>('Murfreesboro');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [scanning, setScanning] = useState(false);
   const [scanProgress, setScanProgress] = useState(0);
   const [scanStep, setScanStep] = useState('');
+
+  // Interface for history scan logs
+  interface ScanLog {
+    date: string;
+    avgRank: string;
+    shareOfVoice: number;
+  }
+
+  // Store which city-keyword configurations have been successfully scanned (populated state)
+  const [scannedConfigurations, setScannedConfigurations] = useState<Record<string, boolean>>({});
+
+  // Store dynamically generated past scan logs per city area
+  const [pastScans, setPastScans] = useState<Record<string, ScanLog[]>>({});
 
   // Selected keyword index for visual ranking lookup
   const [activeKeywordIndex, setActiveKeywordIndex] = useState(0);
@@ -373,11 +624,55 @@ function SEOHeatmapInner({ gmapsKey, onKeyChange }: { key?: string; gmapsKey: st
   // Selected scan date from history (null means current active scan)
   const [selectedScanDate, setSelectedScanDate] = useState<string | null>(null);
 
+  // API Balance Tracker state variables
+  const [apiBalance, setApiBalance] = useState<number | null>(null);
+  const [isBalanceFetching, setIsBalanceFetching] = useState(false);
+  const [balanceError, setBalanceError] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    async function fetchBalance() {
+      if (!dataforseoAuthKey.trim()) {
+        setApiBalance(null);
+        setBalanceError(false);
+        setIsBalanceFetching(false);
+        return;
+      }
+      setIsBalanceFetching(true);
+      setBalanceError(false);
+      try {
+        const balance = await fetchDataForSEOBalance(dataforseoAuthKey.trim());
+        if (active) {
+          setApiBalance(balance);
+        }
+      } catch (err) {
+        console.error("Error loading API balance:", err);
+        if (active) {
+          setBalanceError(true);
+        }
+      } finally {
+        if (active) {
+          setIsBalanceFetching(false);
+        }
+      }
+    }
+    fetchBalance();
+    return () => {
+      active = false;
+    };
+  }, [dataforseoAuthKey]);
+
   // Settings modal states for DataForSEO & Google Maps
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const [settingsAuthKey, setSettingsAuthKey] = useState(() => localStorage.getItem('dataforseo_auth_key') || '');
-  const [settingsGmapsApiKey, setSettingsGmapsApiKey] = useState(() => localStorage.getItem('gmaps_api_key') || '');
+  const [settingsAuthKey, setSettingsAuthKey] = useState(dataforseoAuthKey);
+  const [settingsGmapsApiKey, setSettingsGmapsApiKey] = useState(gmapsKey);
+  const [savingSettings, setSavingSettings] = useState(false);
   const [liveApiScanning, setLiveApiScanning] = useState(false);
+
+  useEffect(() => {
+    setSettingsAuthKey(dataforseoAuthKey);
+    setSettingsGmapsApiKey(gmapsKey);
+  }, [dataforseoAuthKey, gmapsKey]);
 
   const currentConfig = configs[selectedCity] || {
     keywords: 'electrician',
@@ -496,18 +791,30 @@ function SEOHeatmapInner({ gmapsKey, onKeyChange }: { key?: string; gmapsKey: st
     }
   };
 
-  const handleSaveSettings = (e: React.FormEvent) => {
+  const handleSaveSettings = async (e: React.FormEvent) => {
     e.preventDefault();
-    localStorage.setItem('dataforseo_auth_key', settingsAuthKey.trim());
-    localStorage.setItem('gmaps_api_key', settingsGmapsApiKey.trim());
-    onKeyChange(settingsGmapsApiKey.trim());
-    setIsSettingsOpen(false);
-    alert('Credentials saved successfully! Your Base64 authentication key and Google Maps key are stored securely in your browser.');
+    setSavingSettings(true);
+    try {
+      const docRef = doc(db, 'settings', 'admin_settings');
+      await setDoc(docRef, {
+        gmaps_api_key: settingsGmapsApiKey.trim(),
+        dataforseo_auth_key: settingsAuthKey.trim(),
+        updatedAt: serverTimestamp(),
+        updatedBy: auth.currentUser?.email || auth.currentUser?.uid || 'administrator'
+      });
+      onKeysChange(settingsGmapsApiKey.trim(), settingsAuthKey.trim());
+      setIsSettingsOpen(false);
+      alert('Credentials saved successfully! Your Google Maps key and DataForSEO authorization key have been stored securely in the database.');
+    } catch (error: any) {
+      console.error('Error saving admin settings:', error);
+      handleFirestoreError(error, OperationType.WRITE, 'settings/admin_settings');
+    } finally {
+      setSavingSettings(false);
+    }
   };
 
   const handleLiveScan = async () => {
-    const authKey = localStorage.getItem('dataforseo_auth_key');
-    if (!authKey) {
+    if (!dataforseoAuthKey) {
       alert("DataForSEO Base64 Auth Key is not configured. Please open Settings (the gear icon next to 'Add New Area') to supply your key.");
       setIsSettingsOpen(true);
       return;
@@ -565,6 +872,49 @@ function SEOHeatmapInner({ gmapsKey, onKeyChange }: { key?: string; gmapsKey: st
       } else {
         clearInterval(interval);
         setScanning(false);
+
+        // Mark the current configuration as scanned successfully
+        setScannedConfigurations(prev => ({
+          ...prev,
+          [`${selectedCity}_${activeKeyword}`]: true
+        }));
+
+        // Dynamically compute exact stats to store in the past scan history log
+        const sizeVal = currentConfig.gridSize === '3x3' ? 3 : currentConfig.gridSize === '5x5' ? 5 : 7;
+        let runningTotalRank = 0;
+        let runningTop3Count = 0;
+        const totalNodes = sizeVal * sizeVal;
+        
+        for (let y = 0; y < sizeVal; y++) {
+          for (let x = 0; x < sizeVal; x++) {
+            const r = getSeededRank(selectedCity, activeKeyword, x, y, sizeVal, null);
+            runningTotalRank += r;
+            if (r <= 3) {
+              runningTop3Count++;
+            }
+          }
+        }
+        const calculatedAvgRank = (runningTotalRank / totalNodes).toFixed(1);
+        const calculatedShareOfVoice = Math.round((runningTop3Count / totalNodes) * 100);
+
+        // Capture local timestamp for the log
+        const now = new Date();
+        const dateOptions: Intl.DateTimeFormatOptions = { month: 'long', day: 'numeric', year: 'numeric' };
+        const timeOptions: Intl.DateTimeFormatOptions = { hour: '2-digit', minute: '2-digit' };
+        const dateAndTimeString = `${now.toLocaleDateString('en-US', dateOptions)} at ${now.toLocaleTimeString('en-US', timeOptions)}`;
+
+        setPastScans(prev => {
+          const existing = prev[selectedCity] || [];
+          const newLog: ScanLog = {
+            date: dateAndTimeString,
+            avgRank: calculatedAvgRank,
+            shareOfVoice: calculatedShareOfVoice
+          };
+          return {
+            ...prev,
+            [selectedCity]: [newLog, ...existing]
+          };
+        });
       }
     }, 800);
   };
@@ -587,8 +937,12 @@ function SEOHeatmapInner({ gmapsKey, onKeyChange }: { key?: string; gmapsKey: st
       gridCells.push({ x, y, rank });
     }
   }
-  const avgRank = (totalRank / gridCells.length).toFixed(1);
-  const shareOfVoice = Math.round((top3PercentageSum / gridCells.length) * 100);
+
+  // Check if live scan data exists in state for the selected city and active keyword
+  const hasScanData = Boolean(selectedScanDate || scannedConfigurations[`${selectedCity}_${activeKeyword}`]);
+
+  const avgRank = hasScanData ? (totalRank / gridCells.length).toFixed(1) : '-';
+  const shareOfVoice = hasScanData ? Math.round((top3PercentageSum / gridCells.length) * 100) : '-';
 
   return (
     <div id="seo_heatmap_dashboard" className="space-y-6 max-w-7xl mx-auto px-2 pb-12">
@@ -635,15 +989,40 @@ function SEOHeatmapInner({ gmapsKey, onKeyChange }: { key?: string; gmapsKey: st
               <Plus className="w-4 h-4" />
             </button>
 
+            {/* API Balance Badge */}
+            {(!dataforseoAuthKey.trim() || balanceError) ? (
+              <div 
+                className="flex items-center gap-1.5 px-3 py-2 bg-rose-500/10 border border-rose-500/30 rounded-xl text-[11px] text-rose-400 font-extrabold shadow-sm shrink-0" 
+                title={!dataforseoAuthKey.trim() ? "No API authorization key configured" : "Failed to load balance from API"}
+              >
+                <AlertTriangle className="w-3.5 h-3.5 text-rose-400 shrink-0" />
+                <span>API Error</span>
+              </div>
+            ) : isBalanceFetching ? (
+              <div className="flex items-center gap-1.5 px-3 py-2 bg-slate-800 border border-slate-700/60 rounded-xl text-[11px] text-slate-400 font-semibold shadow-sm animate-pulse shrink-0">
+                <RefreshCw className="w-3.5 h-3.5 text-cyan-400 shrink-0 animate-spin" />
+                <span>Loading Balance...</span>
+              </div>
+            ) : (
+              <div 
+                className="flex items-center gap-1.5 px-3 py-2 bg-emerald-500/10 border border-emerald-500/30 rounded-xl text-[11px] text-emerald-400 font-extrabold shadow-sm font-mono cursor-help shrink-0" 
+                title={`DataForSEO API Balance: $${apiBalance !== null ? apiBalance.toFixed(2) : '0.00'}`}
+              >
+                <Coins className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                <span>API Balance: ${apiBalance !== null ? apiBalance.toFixed(2) : '0.00'}</span>
+              </div>
+            )}
+
             {/* DataForSEO Live Settings Gear */}
             <button
               type="button"
               onClick={() => setIsSettingsOpen(true)}
-              className="flex items-center justify-center p-2 rounded-xl bg-slate-800 hover:bg-slate-750 text-slate-300 hover:text-white border border-slate-700 hover:border-slate-600 transition cursor-pointer shadow-sm"
-              title="Configure DataForSEO Live GMB Sync Setup"
+              disabled={isLoadingKeys}
+              className={`flex items-center justify-center p-2 rounded-xl bg-slate-800 hover:bg-slate-750 text-slate-300 hover:text-white border border-slate-700 hover:border-slate-600 transition shadow-sm ${isLoadingKeys ? 'cursor-not-allowed opacity-70' : 'cursor-pointer'}`}
+              title={isLoadingKeys ? "Loading credentials from database..." : "Configure DataForSEO Live GMB Sync Setup"}
               id="dataforseo_api_settings_btn"
             >
-              <Settings className="w-4 h-4 animate-spin-hover" />
+              <Settings className={`w-4 h-4 ${isLoadingKeys ? 'animate-spin text-cyan-405' : 'animate-spin-hover'}`} />
             </button>
           </div>
 
@@ -687,10 +1066,10 @@ function SEOHeatmapInner({ gmapsKey, onKeyChange }: { key?: string; gmapsKey: st
                 setActiveKeywordIndex(idx);
                 setSelectedNode(null);
               }}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition cursor-pointer ${
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap transition cursor-pointer ${
                 idx === activeKeywordIndex
-                  ? 'bg-indigo-650 text-white shadow-xs'
-                  : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-100'
+                  ? 'bg-indigo-650 text-white shadow-sm'
+                  : 'bg-slate-100 hover:bg-slate-200 border border-slate-300 text-slate-800'
               }`}
             >
               {kw}
@@ -761,7 +1140,6 @@ function SEOHeatmapInner({ gmapsKey, onKeyChange }: { key?: string; gmapsKey: st
               </div>
             </div>
           ) : (() => {
-            const gmapsKey = localStorage.getItem('gmaps_api_key') || '';
             const hasGmapsKey = Boolean(gmapsKey.trim());
             const center = getCityCenter(selectedCity, currentConfig);
             const zoomVal = getZoomForRadius(currentConfig.radius);
@@ -797,7 +1175,7 @@ function SEOHeatmapInner({ gmapsKey, onKeyChange }: { key?: string; gmapsKey: st
                         fullscreenControl: false
                       }}
                     >
-                      {gridNodes.map((node) => {
+                      {hasScanData && gridNodes.map((node) => {
                         const r = node.userRank;
                         let colorBg = 'bg-emerald-500 hover:bg-emerald-600 text-white ring-8 ring-emerald-500/10 hover:scale-105';
                         if (r > 3 && r <= 10) {
@@ -830,35 +1208,64 @@ function SEOHeatmapInner({ gmapsKey, onKeyChange }: { key?: string; gmapsKey: st
                     </GoogleMap>
                   </APIProvider>
 
-                  {/* Tiny floating legends over the Google Map for dynamic context */}
-                  <div className="absolute top-3 left-3 bg-white/95 border border-slate-200 rounded-xl p-2.5 px-3 text-[9px] font-mono text-slate-600 flex flex-col gap-1 shadow-md z-10">
-                    <div className="flex items-center gap-1.5">
-                      <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block"></span>
-                      <span>1-3 (Top Packers)</span>
+                  {/* Tiny floating legends and cues if scan data is present */}
+                  {hasScanData && (
+                    <>
+                      <div className="absolute top-3 left-3 bg-white/95 border border-slate-200 rounded-xl p-2.5 px-3 text-[9px] font-mono text-slate-600 flex flex-col gap-1 shadow-md z-10">
+                        <div className="flex items-center gap-1.5">
+                          <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 inline-block"></span>
+                          <span>1-3 (Top Packers)</span>
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <span className="w-2.5 h-2.5 rounded-full bg-amber-500 inline-block"></span>
+                          <span>4-10 (Organic page 1)</span>
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <span className="w-2.5 h-2.5 rounded-full bg-rose-500 inline-block"></span>
+                          <span>11+ (Low visibility)</span>
+                        </div>
+                      </div>
+                      
+                      <div className="absolute bottom-3 right-3 bg-slate-900/95 text-white border border-slate-700/50 rounded-lg py-1 px-2.5 text-[9px] font-sans font-bold shadow-md z-10">
+                        ℹ️ Click any marker to view competitor details
+                      </div>
+                    </>
+                  )}
+
+                  {/* Clean empty overlay state stating: 'No scan data available. Click [Trigger Live Matrix Scan] to generate your first report.' */}
+                  {!hasScanData && (
+                    <div className="absolute inset-0 bg-slate-900/10 backdrop-blur-[2px] flex flex-col items-center justify-center p-6 text-center z-10 animate-fadeIn">
+                      <div className="bg-slate-900/95 border border-slate-750 p-6 rounded-2xl max-w-sm space-y-4 shadow-2xl text-white">
+                        <div className="bg-indigo-500/10 border border-indigo-500/20 p-3 rounded-2xl text-indigo-400 inline-block">
+                          <Compass className="w-8 h-8 animate-pulse" />
+                        </div>
+                        <div className="space-y-1.5">
+                          <h4 className="font-extrabold text-sm text-white tracking-tight">No scan data available</h4>
+                          <p className="text-xs text-slate-300 leading-normal">
+                            No scan data available. Click <strong className="text-indigo-400 cursor-pointer underline hover:text-indigo-350" onClick={handleLiveScan}>[Trigger Live Matrix Scan]</strong> to generate your first report.
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={handleLiveScan}
+                          className="w-full py-2 bg-indigo-650 hover:bg-indigo-700 text-white font-extrabold rounded-xl text-xs tracking-tight transition duration-150 cursor-pointer shadow-md inline-flex items-center justify-center gap-1.5 border-none"
+                        >
+                          <RefreshCw className="w-3.5 h-3.5 animate-spin-hover" />
+                          <span>Trigger Live Matrix Scan</span>
+                        </button>
+                      </div>
                     </div>
-                    <div className="flex items-center gap-1.5">
-                      <span className="w-2 h-2 rounded-full bg-amber-500 inline-block"></span>
-                      <span>4-10 (Organic page 1)</span>
-                    </div>
-                    <div className="flex items-center gap-1.5">
-                      <span className="w-2 h-2 rounded-full bg-rose-500 inline-block"></span>
-                      <span>11+ (Low visibility)</span>
-                    </div>
-                  </div>
-                  
-                  <div className="absolute bottom-3 right-3 bg-slate-900/95 text-white border border-slate-700/50 rounded-lg py-1 px-2.5 text-[9px] font-sans font-bold shadow-md z-10">
-                    ℹ️ Click any marker to view competitor details
-                  </div>
+                  )}
                 </div>
               );
             }
 
             // Fallback screen if there's no Google Maps key configured yet
             return (
-              <div className="relative bg-slate-100 rounded-2xl border border-slate-200 p-8 flex flex-col items-center justify-center min-h-[400px] overflow-hidden">
+              <div className="relative bg-slate-100 rounded-2xl border border-slate-200 p-8 flex flex-col items-center justify-center min-h-[420px] overflow-hidden">
                 <div className="absolute inset-0 opacity-15 pointer-events-none bg-[radial-gradient(#3b82f6_1.5px,transparent_1.5px)] [background-size:16px_16px]"></div>
                 
-                <div className="relative z-10 space-y-5 w-full flex flex-col items-center">
+                <div className="relative z-10 space-y-5 w-full flex flex-col items-center justify-center">
                   
                   {/* Informational Alerts */}
                   <div className="bg-indigo-50 border border-indigo-200 text-indigo-950 p-4 rounded-2xl text-center max-w-sm space-y-1.5 shadow-sm">
@@ -880,58 +1287,82 @@ function SEOHeatmapInner({ gmapsKey, onKeyChange }: { key?: string; gmapsKey: st
                   </div>
 
                   {/* Fallback Interactive Mock CSS Grid */}
-                  <div 
-                    className="grid gap-4 p-4 border border-slate-200 bg-white/70 backdrop-blur-xs rounded-2xl shadow-md"
-                    style={{
-                      gridTemplateColumns: `repeat(${size}, minmax(0, 1fr))`
-                    }}
-                  >
-                    {gridCells.map((cell, idx) => {
-                      const r = cell.rank;
-                      let colorBg = 'bg-emerald-500 hover:bg-emerald-600 text-white ring-8 ring-emerald-500/10 hover:scale-105';
-                      if (r > 3 && r <= 10) {
-                        colorBg = 'bg-amber-500 hover:bg-amber-600 text-white ring-8 ring-amber-500/10 hover:scale-105';
-                      } else if (r > 10) {
-                        colorBg = 'bg-rose-500 hover:bg-rose-600 text-white ring-8 ring-rose-500/10 hover:scale-105';
-                      }
+                  {hasScanData ? (
+                    <>
+                      <div 
+                        className="grid gap-4 p-4 border border-slate-200 bg-white/70 backdrop-blur-xs rounded-2xl shadow-md"
+                        style={{
+                          gridTemplateColumns: `repeat(${size}, minmax(0, 1fr))`
+                        }}
+                      >
+                        {gridCells.map((cell, idx) => {
+                          const r = cell.rank;
+                          let colorBg = 'bg-emerald-500 hover:bg-emerald-600 text-white ring-8 ring-emerald-500/10 hover:scale-105';
+                          if (r > 3 && r <= 10) {
+                            colorBg = 'bg-amber-500 hover:bg-amber-600 text-white ring-8 ring-amber-500/10 hover:scale-105';
+                          } else if (r > 10) {
+                            colorBg = 'bg-rose-500 hover:bg-rose-600 text-white ring-8 ring-rose-500/10 hover:scale-105';
+                          }
 
-                      const isInspected = selectedNode && selectedNode.x === cell.x && selectedNode.y === cell.y;
-                      const ringStyle = isInspected ? 'ring-4 ring-indigo-650 ring-offset-2 border-indigo-600 scale-110 z-20' : 'border-white';
+                          const isInspected = selectedNode && selectedNode.x === cell.x && selectedNode.y === cell.y;
+                          const ringStyle = isInspected ? 'ring-4 ring-indigo-650 ring-offset-2 border-indigo-600 scale-110 z-20' : 'border-white';
 
-                      return (
-                        <button
-                          key={idx}
-                          type="button" 
-                          onClick={() => setSelectedNode({ x: cell.x, y: cell.y, rank: r })}
-                          className={`w-10 h-10 md:w-12 md:h-12 rounded-full flex items-center justify-center font-bold text-sm font-mono cursor-pointer transition shadow-sm shrink-0 border ${colorBg} ${ringStyle}`}
-                          title={`Click to inspect coordinate [X:${cell.x + 1}, Y:${cell.y + 1}] - GMB Rank: ${r <= 20 ? '#' + r : '20+'}`}
-                        >
-                          {r <= 20 ? r : '20+'}
-                        </button>
-                      );
-                    })}
-                  </div>
+                          return (
+                            <button
+                              key={idx}
+                              type="button" 
+                              onClick={() => setSelectedNode({ x: cell.x, y: cell.y, rank: r })}
+                              className={`w-10 h-10 md:w-12 md:h-12 rounded-full flex items-center justify-center font-bold text-sm font-mono cursor-pointer transition shadow-sm shrink-0 border ${colorBg} ${ringStyle}`}
+                              title={`Click to inspect coordinate [X:${cell.x + 1}, Y:${cell.y + 1}] - GMB Rank: ${r <= 20 ? '#' + r : '20+'}`}
+                            >
+                              {r <= 20 ? r : '20+'}
+                            </button>
+                          );
+                        })}
+                      </div>
 
-                  {/* Compass Marker details */}
-                  <div className="bg-white/90 border border-slate-200 rounded-xl p-2.5 px-4 text-[10px] font-mono text-slate-500 flex flex-wrap items-center justify-center gap-4 shadow-sm">
-                    <div className="flex items-center gap-1.5">
-                      <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 inline-block"></span>
-                      <span>1-3 (Top Packers)</span>
+                      {/* Compass Marker details */}
+                      <div className="bg-white/90 border border-slate-200 rounded-xl p-2.5 px-4 text-[10px] font-mono text-slate-500 flex flex-wrap items-center justify-center gap-4 shadow-sm">
+                        <div className="flex items-center gap-1.5">
+                          <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 inline-block"></span>
+                          <span>1-3 (Top Packers)</span>
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <span className="w-2.5 h-2.5 rounded-full bg-amber-500 inline-block"></span>
+                          <span>4-10 (Organic page 1)</span>
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <span className="w-2.5 h-2.5 rounded-full bg-rose-500 inline-block"></span>
+                          <span>11+ (Low visibility)</span>
+                        </div>
+                        <div className="text-slate-350">|</div>
+                        <div className="text-indigo-650 font-sans font-bold">Click any coordinate above to inspect competitors</div>
+                      </div>
+                    </>
+                  ) : (
+                    /* Centered empty state overlay card */
+                    <div className="p-6 bg-white/95 border border-slate-200 rounded-2xl max-w-sm text-center space-y-4 shadow-md mt-4 animate-fadeIn">
+                      <div className="bg-indigo-50 text-indigo-600 p-3.5 rounded-2xl inline-block">
+                        <Compass className="w-8 h-8 animate-pulse" />
+                      </div>
+                      <div className="space-y-1.5">
+                        <h4 className="font-extrabold text-slate-900 text-sm tracking-tight font-sans">No scan data available</h4>
+                        <p className="text-xs text-slate-500 leading-normal font-sans">
+                          No scan data available. Click <strong className="text-indigo-600 cursor-pointer underline hover:text-indigo-500" onClick={handleLiveScan}>[Trigger Live Matrix Scan]</strong> to generate your first report.
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={handleLiveScan}
+                        className="w-full py-2.5 bg-indigo-650 hover:bg-indigo-700 text-white font-extrabold rounded-xl text-xs tracking-tight transition duration-150 cursor-pointer shadow-sm inline-flex items-center justify-center gap-1.5 border-none"
+                      >
+                        <RefreshCw className="w-3.5 h-3.5 animate-spin-hover" />
+                        <span>Trigger Live Matrix Scan</span>
+                      </button>
                     </div>
-                    <div className="flex items-center gap-1.5">
-                      <span className="w-2.5 h-2.5 rounded-full bg-amber-500 inline-block"></span>
-                      <span>4-10 (Organic page 1)</span>
-                    </div>
-                    <div className="flex items-center gap-1.5">
-                      <span className="w-2.5 h-2.5 rounded-full bg-rose-500 inline-block"></span>
-                      <span>11+ (Low visibility)</span>
-                    </div>
-                    <div className="text-slate-350">|</div>
-                    <div className="text-indigo-650 font-sans font-bold">Click any coordinate above to inspect competitors</div>
-                  </div>
+                  )}
 
                 </div>
-
               </div>
             );
           })()}
@@ -949,25 +1380,29 @@ function SEOHeatmapInner({ gmapsKey, onKeyChange }: { key?: string; gmapsKey: st
             <div className="grid grid-cols-2 gap-4">
               <div className="bg-slate-50 border border-slate-100 rounded-xl p-3 text-center">
                 <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Average position</p>
-                <p className="text-2xl font-black text-slate-800 font-mono mt-1">#{avgRank}</p>
+                <p className="text-2xl font-black text-slate-800 font-mono mt-1">
+                  {hasScanData ? `#${avgRank}` : '-'}
+                </p>
               </div>
 
               <div className="bg-slate-50 border border-slate-100 rounded-xl p-3 text-center">
                 <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Share of top 3</p>
-                <p className="text-2xl font-black text-indigo-600 font-mono mt-1">{shareOfVoice}%</p>
+                <p className="text-2xl font-black text-indigo-600 font-mono mt-1">
+                  {hasScanData ? `${shareOfVoice}%` : '-'}
+                </p>
               </div>
             </div>
           </div>
 
           {/* Competitor Market Share Leaderboard */}
           {(() => {
-            const leaderboard = getLeaderboard(
+            const leaderboard = hasScanData ? getLeaderboard(
               selectedCity,
               activeKeyword,
               size,
               currentConfig.gmbName,
               selectedScanDate
-            );
+            ) : [];
 
             return (
               <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm space-y-4">
@@ -995,39 +1430,47 @@ function SEOHeatmapInner({ gmapsKey, onKeyChange }: { key?: string; gmapsKey: st
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
-                      {leaderboard.map((item, id) => {
-                        return (
-                          <tr 
-                            key={item.name}
-                            className={`transition-colors ${
-                              item.isUser 
-                                ? 'bg-indigo-50 hover:bg-indigo-100/70 font-semibold text-indigo-950' 
-                                : 'hover:bg-slate-50 text-slate-700'
-                            }`}
-                          >
-                            <td className="px-3.5 py-2.5 flex items-center gap-2">
-                              {item.isUser ? (
-                                <span className="bg-indigo-600 text-white font-black rounded-full w-4.5 h-4.5 text-[9px] flex items-center justify-center shrink-0 shadow-xs" title="Your Business Profile">
-                                  ★
+                      {leaderboard.length === 0 ? (
+                        <tr>
+                          <td colSpan={3} className="px-3.5 py-8 text-center text-slate-400 font-medium">
+                            Run a live scan to analyze competitor market share.
+                          </td>
+                        </tr>
+                      ) : (
+                        leaderboard.map((item, id) => {
+                          return (
+                            <tr 
+                              key={item.name}
+                              className={`transition-colors ${
+                                item.isUser 
+                                  ? 'bg-indigo-50 hover:bg-indigo-100/70 font-semibold text-indigo-950' 
+                                  : 'hover:bg-slate-50 text-slate-700'
+                              }`}
+                            >
+                              <td className="px-3.5 py-2.5 flex items-center gap-2">
+                                {item.isUser ? (
+                                  <span className="bg-indigo-600 text-white font-black rounded-full w-4.5 h-4.5 text-[9px] flex items-center justify-center shrink-0 shadow-xs" title="Your Business Profile">
+                                    ★
+                                  </span>
+                                ) : (
+                                  <span className="bg-slate-200 text-slate-600 font-bold font-mono rounded-full w-4.5 h-4.5 text-[9px] flex items-center justify-center shrink-0">
+                                    {id + 1}
+                                  </span>
+                                )}
+                                <span className="truncate max-w-[130px]" title={item.name}>
+                                  {item.name}
                                 </span>
-                              ) : (
-                                <span className="bg-slate-200 text-slate-600 font-bold font-mono rounded-full w-4.5 h-4.5 text-[9px] flex items-center justify-center shrink-0">
-                                  {id + 1}
-                                </span>
-                              )}
-                              <span className="truncate max-w-[130px]" title={item.name}>
-                                {item.name}
-                              </span>
-                            </td>
-                            <td className="px-3 py-2.5 text-center font-mono font-bold">
-                              #{item.avgRank}
-                            </td>
-                            <td className="px-3.5 py-2.5 text-right font-mono font-extrabold text-indigo-650">
-                              {item.top3Share}%
-                            </td>
-                          </tr>
-                        );
-                      })}
+                              </td>
+                              <td className="px-3 py-2.5 text-center font-mono font-bold">
+                                #{item.avgRank}
+                              </td>
+                              <td className="px-3.5 py-2.5 text-right font-mono font-extrabold text-indigo-650">
+                                {item.top3Share}%
+                              </td>
+                            </tr>
+                          );
+                        })
+                      )}
                     </tbody>
                   </table>
                 </div>
@@ -1057,67 +1500,84 @@ function SEOHeatmapInner({ gmapsKey, onKeyChange }: { key?: string; gmapsKey: st
               {/* Current Active Scan element */}
               <button
                 type="button"
+                disabled={!scannedConfigurations[`${selectedCity}_${activeKeyword}`]}
                 onClick={() => setSelectedScanDate(null)}
-                className={`w-full text-left p-3 rounded-xl border transition flex items-center justify-between text-xs cursor-pointer ${
-                  selectedScanDate === null
-                    ? 'bg-indigo-50 border-indigo-200 text-indigo-900 shadow-xs'
-                    : 'bg-white hover:bg-slate-50 border-slate-200 text-slate-600'
+                className={`w-full text-left p-3 rounded-xl border transition flex items-center justify-between text-xs ${
+                  scannedConfigurations[`${selectedCity}_${activeKeyword}`]
+                    ? 'cursor-pointer'
+                    : 'cursor-not-allowed opacity-60'
+                } ${
+                  selectedScanDate === null && scannedConfigurations[`${selectedCity}_${activeKeyword}`]
+                    ? 'bg-indigo-50 border-indigo-200 text-indigo-900 shadow-sm'
+                    : 'bg-slate-100 hover:bg-slate-200 border-slate-300 text-slate-800 font-bold'
                 }`}
               >
                 <div className="flex items-center space-x-2">
-                  <Activity className={`w-3.5 h-3.5 ${selectedScanDate === null ? 'text-indigo-600 animate-pulse' : 'text-slate-400'}`} />
+                  <Activity className={`w-3.5 h-3.5 ${selectedScanDate === null && scannedConfigurations[`${selectedCity}_${activeKeyword}`] ? 'text-indigo-600 animate-pulse' : 'text-slate-500'}`} />
                   <div>
-                    <p className="font-extrabold text-slate-800">Current Live Scan</p>
-                    <p className="text-[10px] text-slate-400 mt-0.5">Updated: today, 10:27 AM</p>
+                    <p className="font-extrabold text-slate-850">Current Live Scan</p>
+                    <p className="text-[10px] text-slate-450 mt-0.5">
+                      {scannedConfigurations[`${selectedCity}_${activeKeyword}`] 
+                        ? 'Updated: Active scan currently loaded' 
+                        : 'Status: No active scan run yet'}
+                    </p>
                   </div>
                 </div>
-                {selectedScanDate === null && (
+                {selectedScanDate === null && scannedConfigurations[`${selectedCity}_${activeKeyword}`] && (
                   <span className="text-[9px] bg-indigo-600 text-white font-mono font-bold px-2 py-0.5 rounded-md">
                     Active
                   </span>
                 )}
               </button>
 
-              {/* 3 Mock Past Scan dates */}
-              {['June 15, 2026', 'June 8, 2026', 'June 1, 2026'].map((date, idx) => {
-                const isSelected = selectedScanDate === date;
-                // Calculate different average/percentage dynamically for the log decoration
-                const displayAvgRank = (Number(avgRank) + (idx % 2 === 0 ? 0.3 : -0.5)).toFixed(1);
-                const displaySOV = Math.min(100, Math.max(0, shareOfVoice + (idx % 2 === 0 ? -6 : 7)));
-
-                return (
-                  <button
-                    key={date}
-                    type="button"
-                    onClick={() => {
-                      setSelectedScanDate(date);
-                      setSelectedNode(null);
-                    }}
-                    className={`w-full text-left p-2.5 rounded-xl border transition flex items-center justify-between text-xs cursor-pointer ${
-                      isSelected
-                        ? 'bg-amber-50 border-amber-300 text-amber-900 shadow-xs font-semibold'
-                        : 'bg-slate-50 hover:bg-slate-100 border-slate-200 text-slate-600'
-                    }`}
-                  >
-                    <div className="flex items-center space-x-2">
-                      <Calendar className={`w-3.5 h-3.5 ${isSelected ? 'text-amber-500' : 'text-slate-400'}`} />
-                      <div>
-                        <p className="font-bold">{date}</p>
-                        <p className="text-[9px] text-slate-450 mt-0.5">Avg Rank: #{displayAvgRank} • SOV: {displaySOV}%</p>
-                      </div>
+              {/* Dynamic History logs / Empty state fallback */}
+              {(() => {
+                const logs = pastScans[selectedCity] || [];
+                if (logs.length === 0) {
+                  return (
+                    <div className="py-6 px-4 bg-slate-50 border border-dashed border-slate-200 rounded-xl text-center text-slate-400 text-xs font-semibold">
+                      No past scans recorded for this service area.
                     </div>
-                    {isSelected ? (
-                      <span className="text-[9px] bg-amber-500 text-white font-semibold px-2 py-0.5 rounded-md">
-                        Viewing
-                      </span>
-                    ) : (
-                      <span className="text-[9px] text-slate-450 font-mono">
-                        View Log
-                      </span>
-                    )}
-                  </button>
-                );
-              })}
+                  );
+                }
+
+                return logs.map((log) => {
+                  const isSelected = selectedScanDate === log.date;
+
+                  return (
+                    <button
+                      key={log.date}
+                      type="button"
+                      onClick={() => {
+                        setSelectedScanDate(log.date);
+                        setSelectedNode(null);
+                      }}
+                      className={`w-full text-left p-2.5 rounded-xl border transition flex items-center justify-between text-xs cursor-pointer ${
+                        isSelected
+                          ? 'bg-amber-50 border-amber-300 text-amber-900 shadow-sm font-semibold'
+                          : 'bg-slate-100 hover:bg-slate-200 border-slate-300 text-slate-800 font-bold'
+                      }`}
+                    >
+                      <div className="flex items-center space-x-2">
+                        <Calendar className={`w-3.5 h-3.5 ${isSelected ? 'text-amber-500' : 'text-slate-400'}`} />
+                        <div>
+                          <p className="font-extrabold text-slate-800">{log.date}</p>
+                          <p className="text-[9px] text-slate-500 mt-0.5">Avg Rank: #{log.avgRank} • SOV: {log.shareOfVoice}%</p>
+                        </div>
+                      </div>
+                      {isSelected ? (
+                        <span className="text-[9px] bg-amber-500 text-white font-semibold px-2 py-0.5 rounded-md">
+                          Viewing
+                        </span>
+                      ) : (
+                        <span className="text-[9px] text-slate-450 font-mono">
+                          View Log
+                        </span>
+                      )}
+                    </button>
+                  );
+                });
+              })()}
             </div>
           </div>
 
@@ -1129,7 +1589,11 @@ function SEOHeatmapInner({ gmapsKey, onKeyChange }: { key?: string; gmapsKey: st
             </div>
 
             <div className="text-xs space-y-3 font-sans text-slate-650">
-              {Number(avgRank) <= 4 ? (
+              {!hasScanData ? (
+                <div className="bg-slate-50 text-slate-550 border border-slate-150 p-4 rounded-xl text-center font-medium">
+                  No scan data available yet. Please complete a dynamic matrix scan to retrieve targeted SEO checklists.
+                </div>
+              ) : Number(avgRank) <= 4 ? (
                 <div className="bg-emerald-50 text-emerald-800 border border-emerald-150 p-3 rounded-xl flex items-start gap-2">
                   <CheckCircle className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
                   <div>
@@ -1147,14 +1611,21 @@ function SEOHeatmapInner({ gmapsKey, onKeyChange }: { key?: string; gmapsKey: st
                 </div>
               )}
 
-              <div className="space-y-1.5 font-sans border-t pt-3">
-                <p className="font-semibold text-slate-700">Next Recommended Action Steps:</p>
-                <ul className="list-disc pl-4 space-y-1 pl-safe pr-safe">
-                  <li>Verify Google My Business address tags in {selectedCity}.</li>
-                  <li>Embed GMB listing map frame on public domain local subpages.</li>
-                  <li>Incorporate target phrase <code className="bg-slate-100 text-amber-800 p-0.5 px-1 rounded">"{activeKeyword}"</code> inside public metadata schemas.</li>
-                </ul>
-              </div>
+              {hasScanData ? (
+                <div className="space-y-1.5 font-sans border-t pt-3">
+                  <p className="font-semibold text-slate-700">Next Recommended Action Steps:</p>
+                  <ul className="list-disc pl-4 space-y-1 pl-safe pr-safe">
+                    <li>Verify Google My Business address tags in {selectedCity}.</li>
+                    <li>Embed GMB listing map frame on public domain local subpages.</li>
+                    <li>Incorporate target phrase <code className="bg-slate-100 text-amber-800 p-0.5 px-1 rounded">"{activeKeyword}"</code> inside public metadata schemas.</li>
+                  </ul>
+                </div>
+              ) : (
+                <div className="space-y-1.5 font-sans border-t pt-3 opacity-50">
+                  <p className="font-semibold text-slate-500">Telemetry-driven next actions (Scan required):</p>
+                  <p className="text-[11px] text-slate-450 italic">Please run a dynamic matrix scan to load contextual metadata audits.</p>
+                </div>
+              )}
             </div>
           </div>
 
@@ -1204,52 +1675,19 @@ function SEOHeatmapInner({ gmapsKey, onKeyChange }: { key?: string; gmapsKey: st
                   )}
                 </div>
 
-                {gmapsKey ? (
-                  <LivePlacesSearch
-                    tempGmbName={tempGmbName}
-                    setTempGmbName={setTempGmbName}
-                    tempPlaceId={tempPlaceId}
-                    setTempPlaceId={setTempPlaceId}
-                    searchedProfiles={searchedProfiles}
-                    setSearchedProfiles={setSearchedProfiles}
-                    searchingGmb={searchingGmb}
-                    setSearchingGmb={setSearchingGmb}
-                  />
-                ) : (
-                  <div className="space-y-1.5 bg-white">
-                    <div className="flex gap-2">
-                      <input
-                        type="text"
-                        required
-                        value={tempGmbName}
-                        onChange={(e) => {
-                          setTempGmbName(e.target.value);
-                          setSearchedProfiles([]);
-                        }}
-                        placeholder="Search Google Business profiles..."
-                        className="flex-1 px-3 py-2 text-xs rounded-xl border border-slate-300 text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-550 transition bg-white"
-                      />
-                      <button
-                        type="button"
-                        onClick={handleSearchGmbProfiles}
-                        disabled={searchingGmb || !tempGmbName.trim()}
-                        className="px-3.5 py-2 bg-indigo-650 hover:bg-indigo-700 disabled:bg-indigo-300 text-white font-bold text-xs rounded-xl transition flex items-center justify-center gap-1.5 cursor-pointer border-none"
-                      >
-                        {searchingGmb ? (
-                          <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                        ) : (
-                          <Search className="w-3.5 h-3.5" />
-                        )}
-                        <span>Search</span>
-                      </button>
-                    </div>
-                    {/* Fallback Warning */}
-                    <div className="bg-amber-50 text-amber-950 p-2 text-[10px] rounded-lg font-sans border border-amber-150 flex items-center gap-1 mt-1">
-                      <span className="font-extrabold text-amber-600">⚠️</span>
-                      <span>API Key required for live search (mock profiles shown)</span>
-                    </div>
-                  </div>
-                )}
+                <LivePlacesSearch
+                  gmapsKey={gmapsKey}
+                  selectedCity={selectedCity}
+                  tempGmbName={tempGmbName}
+                  setTempGmbName={setTempGmbName}
+                  tempPlaceId={tempPlaceId}
+                  setTempPlaceId={setTempPlaceId}
+                  searchedProfiles={searchedProfiles}
+                  setSearchedProfiles={setSearchedProfiles}
+                  searchingGmb={searchingGmb}
+                  setSearchingGmb={setSearchingGmb}
+                  isLoadingKeys={isLoadingKeys}
+                />
 
                 {/* Manual Place ID Input Override */}
                 <div className="space-y-1 mt-2">
@@ -1267,31 +1705,6 @@ function SEOHeatmapInner({ gmapsKey, onKeyChange }: { key?: string; gmapsKey: st
                     Manually type or paste a custom Place ID, or search above to select matching profiles.
                   </p>
                 </div>
-
-                {/* Dropdown matching business profiles list (for both live and mock search) */}
-                {searchedProfiles.length > 0 && (
-                  <div className="border border-slate-200 rounded-xl bg-slate-50 p-2 space-y-1.5 max-h-[140px] overflow-y-auto">
-                    <p className="text-[9px] text-slate-400 font-bold uppercase tracking-wider px-1">Select business profile:</p>
-                    {searchedProfiles.map((p) => (
-                      <button
-                        key={p.placeId}
-                        type="button"
-                        onClick={() => {
-                          setTempGmbName(p.name);
-                          setTempPlaceId(p.placeId);
-                          setSearchedProfiles([]);
-                        }}
-                        className="w-full text-left p-2 rounded-lg bg-white hover:bg-indigo-50 border border-slate-200 hover:border-indigo-200 transition text-xs flex items-center justify-between cursor-pointer"
-                      >
-                        <div>
-                          <p className="font-bold text-slate-800">{p.name}</p>
-                          <p className="text-[9px] text-slate-400 font-sans mt-0.5">{p.formatted_address}</p>
-                        </div>
-                        <code className="text-[9px] font-mono text-slate-500 bg-slate-100 p-0.5 rounded">{p.placeId}</code>
-                      </button>
-                    ))}
-                  </div>
-                )}
               </div>
 
               {/* Target Keywords (comma-separated) */}
@@ -1408,7 +1821,7 @@ function SEOHeatmapInner({ gmapsKey, onKeyChange }: { key?: string; gmapsKey: st
                 <button
                   type="button"
                   onClick={handleDeleteServiceArea}
-                  className="px-3 py-2 bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer"
+                  className="px-3.5 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer border-none shadow-sm"
                   title="Delete this service area profile entirely"
                 >
                   <Trash2 className="w-3.5 h-3.5" />
@@ -1419,7 +1832,7 @@ function SEOHeatmapInner({ gmapsKey, onKeyChange }: { key?: string; gmapsKey: st
                   <button
                     type="button"
                     onClick={() => setIsModalOpen(false)}
-                    className="px-3.5 py-2 border border-slate-250 text-slate-555 hover:bg-slate-50 rounded-xl text-xs font-semibold cursor-pointer transition duration-150"
+                    className="px-3.5 py-2 bg-slate-800 hover:bg-slate-750 text-white rounded-xl text-xs font-bold cursor-pointer transition duration-150"
                   >
                     Cancel
                   </button>
@@ -1649,7 +2062,7 @@ function SEOHeatmapInner({ gmapsKey, onKeyChange }: { key?: string; gmapsKey: st
                 <button
                   type="button"
                   onClick={() => setIsAddAreaOpen(false)}
-                  className="px-3 py-2 border border-slate-250 text-slate-500 hover:bg-slate-50 rounded-xl text-xs font-semibold cursor-pointer transition"
+                  className="px-3.5 py-2 bg-slate-800 hover:bg-slate-750 text-white rounded-xl text-xs font-bold cursor-pointer transition"
                 >
                   Cancel
                 </button>
@@ -1694,7 +2107,7 @@ function SEOHeatmapInner({ gmapsKey, onKeyChange }: { key?: string; gmapsKey: st
             <div className="p-4 bg-indigo-50/50 border-b border-indigo-100 text-indigo-950 text-[11px] leading-relaxed font-sans space-y-1">
               <p className="font-bold">Credential Configuration:</p>
               <p>
-                Provide credentials for external API syncs. Keys are saved securely directly in your local browser storage.
+                Provide credentials for external API syncs. Keys are saved securely inside your centralized Firestore cloud database.
               </p>
             </div>
 
@@ -1740,15 +2153,17 @@ function SEOHeatmapInner({ gmapsKey, onKeyChange }: { key?: string; gmapsKey: st
                 <button
                   type="button"
                   onClick={() => setIsSettingsOpen(false)}
-                  className="px-3 py-1.5 border border-slate-250 text-slate-500 hover:bg-slate-50 rounded-xl text-xs font-semibold cursor-pointer transition"
+                  className="px-3.5 py-1.5 bg-slate-800 hover:bg-slate-750 text-white rounded-xl text-xs font-bold cursor-pointer transition"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-1.5 bg-indigo-650 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold shadow-sm transition cursor-pointer border-none"
+                  disabled={savingSettings}
+                  className="px-4 py-1.5 bg-indigo-650 hover:bg-indigo-700 text-white disabled:bg-indigo-400 rounded-xl text-xs font-bold shadow-sm transition cursor-pointer border-none flex items-center justify-center gap-1.5"
                 >
-                  Save Settings
+                  {savingSettings && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
+                  <span>{savingSettings ? 'Saving...' : 'Save Settings'}</span>
                 </button>
               </div>
 

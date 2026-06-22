@@ -101,6 +101,14 @@ service cloud.firestore {
         && (!('squareAccessToken' in data) || data.squareAccessToken is string);
     }
 
+    function isValidAdminSettings(data) {
+      return data.keys().hasAll(['updatedBy', 'updatedAt'])
+        && data.updatedBy is string
+        && data.updatedAt == request.time
+        && (!('gmaps_api_key' in data) || data.gmaps_api_key is string)
+        && (!('dataforseo_auth_key' in data) || data.dataforseo_auth_key is string);
+    }
+
     function isValidInvite(data) {
       return data.keys().hasAll(['name', 'cellPhone', 'status', 'createdAt'])
         && data.keys().size() >= 4
@@ -175,7 +183,10 @@ service cloud.firestore {
       allow read: if isAdmin();
 
       // Settings updates are strictly preserved for Administrator accounts
-      allow write: if isAdmin() && isValidId(settingId) && settingId == 'payment_config' && isValidPaymentConfig(incoming());
+      allow write: if isAdmin() && isValidId(settingId) && (
+        (settingId == 'payment_config' && isValidPaymentConfig(incoming())) ||
+        (settingId == 'admin_settings' && isValidAdminSettings(incoming()))
+      );
     }
 
     // Secure Onboarding Invitations Ticket Collection (Phase 1 & 3)
