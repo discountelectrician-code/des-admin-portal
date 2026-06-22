@@ -280,6 +280,7 @@ export const generateRealCompetitorsForNode = (
   userGmbName: string,
   calculatedUserRank: number
 ): Competitor[] => {
+  console.log("DEBUG - Total items received from API:", realItems);
   const userGmbLower = (userGmbName || '').toLowerCase();
   const rawPool = realItems.filter(item => !(item.name || '').toLowerCase().includes(userGmbLower));
   const seed = x + y + size;
