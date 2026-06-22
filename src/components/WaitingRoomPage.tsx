@@ -75,7 +75,7 @@ export default function WaitingRoomPage() {
             type="button"
             id="btn-check-portal-status"
             onClick={handleCheckStatus}
-            className="w-full py-3 h-12 bg-indigo-650 hover:bg-indigo-755 hover:bg-indigo-700 text-white font-bold text-xs tracking-tight rounded-xl shadow-lg hover:shadow-indigo-500/10 transition flex items-center justify-center gap-1.5 cursor-pointer border-none"
+            className="w-full py-3 h-12 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs tracking-tight rounded-xl shadow-lg hover:shadow-indigo-500/10 transition flex items-center justify-center gap-1.5 cursor-pointer border-none"
           >
             <ShieldCheck className="w-4 h-4" />
             <span>Go to Login / Check Portal Status</span>
@@ -87,10 +87,10 @@ export default function WaitingRoomPage() {
               id="btn-onboard-logout"
               onClick={handleSignOut}
               disabled={loggingOut}
-              className="w-full py-2.5 bg-slate-900 hover:bg-slate-850 hover:text-rose-400 border border-slate-800 text-slate-400 font-bold text-xs rounded-xl transition flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+              className="w-full py-2.5 bg-slate-900 hover:bg-slate-800 hover:text-rose-400 border border-slate-800 text-slate-400 font-bold text-xs rounded-xl transition flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
             >
               {loggingOut ? (
-                <RefreshCw className="w-4 h-4 animate-spin text-slate-450" />
+                <RefreshCw className="w-4 h-4 animate-spin text-slate-400" />
               ) : (
                 <>
                   <LogOut className="w-4 h-4" />

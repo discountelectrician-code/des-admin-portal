@@ -482,7 +482,7 @@ export default function App() {
               <button 
                 type="submit"
                 disabled={authLoading}
-                className="w-full py-3 bg-indigo-650 hover:bg-indigo-700 text-white font-bold text-sm tracking-tight rounded-xl shadow-lg hover:shadow-indigo-100 transition duration-300 flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+                className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-sm tracking-tight rounded-xl shadow-lg hover:shadow-indigo-100 transition duration-300 flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
               >
                 {authLoading ? (
                   <RefreshCw className="w-4 h-4 animate-spin text-white" />
@@ -524,7 +524,7 @@ export default function App() {
                   setAuthError('');
                   setIsRegistering(!isRegistering);
                 }}
-                className="text-xs font-bold text-indigo-650 hover:text-indigo-800 transition cursor-pointer"
+                className="text-xs font-bold text-indigo-600 hover:text-indigo-800 transition cursor-pointer"
               >
                 {isRegistering ? 'Already in registry? Sign In' : 'Register a new employee profile'}
               </button>

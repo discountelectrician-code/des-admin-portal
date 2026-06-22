@@ -173,7 +173,7 @@ export default function AddEmployeeModal({ isOpen, onClose, onSuccess }: AddEmpl
 
           {/* Dynamic Invite Link Container */}
           <div className="space-y-2 text-left">
-            <label className="text-[10px] uppercase font-bold text-slate-450 font-mono tracking-wider flex items-center gap-1">
+            <label className="text-[10px] uppercase font-bold text-slate-400 font-mono tracking-wider flex items-center gap-1">
               <Link2 className="w-3.5 h-3.5 text-indigo-400" />
               <span>Secret Onboarding Invitation Link</span>
             </label>
@@ -187,7 +187,7 @@ export default function AddEmployeeModal({ isOpen, onClose, onSuccess }: AddEmpl
               <button
                 type="button"
                 onClick={handleCopyLink}
-                className="px-3.5 py-1.5 h-8 bg-indigo-650 hover:bg-indigo-700 text-white font-bold text-xs rounded-lg transition-colors flex items-center gap-1 cursor-pointer"
+                className="px-3.5 py-1.5 h-8 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-lg transition-colors flex items-center gap-1 cursor-pointer"
               >
                 {copiedLink ? <CheckCircle className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
                 <span>{copiedLink ? 'Copied' : 'Copy'}</span>
@@ -206,7 +206,7 @@ export default function AddEmployeeModal({ isOpen, onClose, onSuccess }: AddEmpl
               onSuccess();
               onClose();
             }}
-            className="w-full py-3 bg-slate-900 hover:bg-slate-850 text-white font-bold text-sm tracking-tight rounded-xl transition duration-350 cursor-pointer border border-slate-800"
+            className="w-full py-3 bg-slate-900 hover:bg-slate-800 text-white font-bold text-sm tracking-tight rounded-xl transition duration-300 cursor-pointer border border-slate-800"
           >
             Acknowledge & Close
           </button>

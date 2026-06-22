@@ -39,6 +39,7 @@ interface CityConfig {
   placeId?: string;
   targetPlaceId?: string;
   scanFrequency?: 'Manual Only' | 'Daily' | 'Weekly' | 'Bi-Weekly' | 'Monthly';
+  preferredTime?: string;
   center?: { lat: number; lng: number };
 }
 
@@ -107,6 +108,27 @@ const MapController = ({
     }
   }, [selectedCity, currentConfig.targetPlaceId, currentConfig.placeId, geocodingLibrary, map, onCenterResolved]);
 
+  // Explicitly center and pan to custom coordinates when targetPlaceId changes
+  useEffect(() => {
+    if (!geocodingLibrary || !map) return;
+    if (typeof window === 'undefined' || !window.google || !window.google.maps) return;
+    
+    const targetId = currentConfig.targetPlaceId;
+    if (!targetId || targetId === 'loc_placeholder' || targetId.startsWith('loc_')) return;
+
+    const geocoder = new window.google.maps.Geocoder();
+    geocoder.geocode({ placeId: targetId }, (results: any, status: any) => {
+      if (status === 'OK' && results && results[0]) {
+        const loc = results[0].geometry.location;
+        const coords = { lat: loc.lat(), lng: loc.lng() };
+        onCenterResolved(coords);
+        map.panTo(coords);
+      } else {
+        console.warn(`Force Map Pan Geocoder failed for: ${targetId} with status: ${status}`);
+      }
+    });
+  }, [currentConfig.targetPlaceId, geocodingLibrary, map, onCenterResolved]);
+
   return null;
 };
 
@@ -137,7 +159,8 @@ const INITIAL_CITY_CONFIGS: Record<string, CityConfig> = {
     gridSize: '5x5',
     placeId: 'ch_gmb_murf_37130',
     targetPlaceId: 'ch_gmb_murf_37130',
-    scanFrequency: 'Manual Only'
+    scanFrequency: 'Manual Only',
+    preferredTime: '08:00'
   }
 };
 
@@ -645,7 +668,7 @@ function LivePlacesSearch({
 
   return (
     <div ref={containerRef} className="relative space-y-1 bg-white">
-      <div className="relative flex items-center bg-white rounded-xl border border-slate-300 focus-within:ring-2 focus-within:ring-indigo-550 transition-shadow">
+      <div className="relative flex items-center bg-white rounded-xl border border-slate-300 focus-within:ring-2 focus-within:ring-indigo-500 transition-shadow">
         <input
           type="text"
           required
@@ -687,7 +710,7 @@ function LivePlacesSearch({
                   setSearchedProfiles([]);
                   setIsDropdownOpen(false);
                 }}
-                className="w-full text-left p-2 rounded-lg bg-white hover:bg-indigo-50 border border-slate-200 hover:border-indigo-200 transition text-xs flex items-center justify-between cursor-pointer focus:outline-none focus:ring-2 focus:ring-indigo-550 gap-2"
+                className="w-full text-left p-2 rounded-lg bg-white hover:bg-indigo-50 border border-slate-200 hover:border-indigo-200 transition text-xs flex items-center justify-between cursor-pointer focus:outline-none focus:ring-2 focus:ring-indigo-500 gap-2"
               >
                 <div className="min-w-0 flex-1">
                   <p className="font-bold text-slate-800 truncate">{p.name}</p>
@@ -701,7 +724,7 @@ function LivePlacesSearch({
       )}
 
       {!gmapsKey && (
-        <div className="bg-amber-50 text-amber-950 p-2 text-[10px] rounded-lg font-sans border border-amber-150 flex items-center gap-1 mt-1 shrink-0">
+        <div className="bg-amber-50 text-amber-950 p-2 text-[10px] rounded-lg font-sans border border-amber-200 flex items-center gap-1 mt-1 shrink-0">
           <span className="font-extrabold text-amber-600">⚠️</span>
           <span>Credential API Key required for live Places API (mock mode active)</span>
         </div>
@@ -753,6 +776,7 @@ function SEOHeatmapInner({
   const [tempGridSize, setTempGridSize] = useState<'3x3' | '5x5' | '7x7'>('5x5');
   const [tempPlaceId, setTempPlaceId] = useState<string>('');
   const [tempScanFrequency, setTempScanFrequency] = useState<'Manual Only' | 'Daily' | 'Weekly' | 'Bi-Weekly' | 'Monthly'>('Manual Only');
+  const [tempPreferredTime, setTempPreferredTime] = useState<string>('08:00');
 
   // Place ID selection search integration states
   const [searchingGmb, setSearchingGmb] = useState(false);
@@ -809,6 +833,46 @@ function SEOHeatmapInner({
       active = false;
     };
   }, [dataforseoAuthKey]);
+
+  // Load schedules from the Firestore admin_settings collection on mount
+  useEffect(() => {
+    async function loadSchedules() {
+      try {
+        const q = query(collection(db, 'admin_settings'));
+        const querySnapshot = await getDocs(q);
+        const loadedConfigs: Record<string, CityConfig> = {};
+        
+        querySnapshot.forEach((docSnap) => {
+          const data = docSnap.data();
+          if (data.serviceArea) {
+            loadedConfigs[data.serviceArea] = {
+              keywords: data.keywords || '',
+              gmbName: data.gmbName || '',
+              radius: Number(data.radius) || 10,
+              gridSize: data.gridSize || '5x5',
+              placeId: data.placeId || '',
+              targetPlaceId: data.targetPlaceId || data.placeId || '',
+              scanFrequency: data.scanFrequency || 'Manual Only',
+              preferredTime: data.preferredTime || '08:00',
+              center: data.center || undefined,
+            };
+          }
+        });
+        
+        if (Object.keys(loadedConfigs).length > 0) {
+          setConfigs((prev) => ({
+            ...prev,
+            ...loadedConfigs,
+          }));
+          const firstCity = Object.keys(loadedConfigs)[0];
+          setSelectedCity(firstCity);
+        }
+      } catch (err) {
+        console.error("Error loading schedules from admin_settings collection:", err);
+      }
+    }
+    loadSchedules();
+  }, []);
 
   // Settings modal states for DataForSEO & Google Maps
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
@@ -964,12 +1028,32 @@ function SEOHeatmapInner({
     setTempGridSize(currentConfig.gridSize);
     setTempPlaceId(currentConfig.placeId || '');
     setTempScanFrequency(currentConfig.scanFrequency || 'Manual Only');
+    setTempPreferredTime(currentConfig.preferredTime || '08:00');
     setSearchedProfiles([]);
     setIsModalOpen(true);
   };
 
-  const handleSaveConfig = (e: React.FormEvent) => {
+  const handleSaveConfig = async (e: React.FormEvent) => {
     e.preventDefault();
+    try {
+      const docRef = doc(db, 'admin_settings', selectedCity);
+      await setDoc(docRef, {
+        serviceArea: selectedCity,
+        keywords: tempKeywords,
+        gmbName: tempGmbName,
+        radius: Number(tempRadius),
+        gridSize: tempGridSize,
+        placeId: tempPlaceId,
+        targetPlaceId: tempPlaceId,
+        scanFrequency: tempScanFrequency,
+        preferredTime: tempPreferredTime || '08:00',
+        center: resolvedCenter || getCityCenter(selectedCity, currentConfig),
+        updatedAt: serverTimestamp()
+      });
+    } catch (err: any) {
+      console.error("Error saving schedule settings to Firestore admin_settings collection:", err);
+    }
+
     setConfigs(prev => ({
       ...prev,
       [selectedCity]: {
@@ -979,7 +1063,8 @@ function SEOHeatmapInner({
         gridSize: tempGridSize,
         placeId: tempPlaceId,
         targetPlaceId: tempPlaceId,
-        scanFrequency: tempScanFrequency
+        scanFrequency: tempScanFrequency,
+        preferredTime: tempPreferredTime
       }
     }));
     setActiveKeywordIndex(0);
@@ -1311,14 +1396,23 @@ function SEOHeatmapInner({
         if (selectedLog && selectedLog.gridNodes) {
           const matchingNode = selectedLog.gridNodes.find(n => n.x === x && n.y === y);
           if (matchingNode) {
-            rank = matchingNode.userRank;
+            if (matchingNode.keywords && matchingNode.keywords[activeKeyword]) {
+              rank = matchingNode.keywords[activeKeyword].userRank;
+            } else {
+              rank = matchingNode.userRank;
+            }
           }
         }
-      } else if (activeScanData && activeScanData.serviceArea === selectedCity && activeScanData.keyword === activeKeyword) {
+      } else if (activeScanData && activeScanData.serviceArea === selectedCity && 
+                 (activeScanData.keyword === activeKeyword || (activeScanData.keyword && activeScanData.keyword.split(',').map((k: any) => k.trim()).includes(activeKeyword)))) {
         if (activeScanData.gridNodes) {
           const matchingNode = activeScanData.gridNodes.find(n => n.x === x && n.y === y);
           if (matchingNode) {
-            rank = matchingNode.userRank;
+            if (matchingNode.keywords && matchingNode.keywords[activeKeyword]) {
+              rank = matchingNode.keywords[activeKeyword].userRank;
+            } else {
+              rank = matchingNode.userRank;
+            }
           }
         }
       }
@@ -1335,7 +1429,8 @@ function SEOHeatmapInner({
   const hasScanData = Boolean(
     selectedScanDate || 
     scannedConfigurations[`${selectedCity}_${activeKeyword}`] ||
-    (activeScanData && activeScanData.serviceArea === selectedCity && activeScanData.keyword === activeKeyword)
+    (activeScanData && activeScanData.serviceArea === selectedCity && 
+     (activeScanData.keyword === activeKeyword || (activeScanData.keyword && activeScanData.keyword.split(',').map((k: any) => k.trim()).includes(activeKeyword))))
   );
 
   const avgRank = hasScanData ? (totalRank / gridCells.length).toFixed(1) : '-';
@@ -1369,7 +1464,7 @@ function SEOHeatmapInner({
                 setSelectedNode(null);
                 setSelectedScanDate(null);
               }}
-              className="bg-slate-850 border border-slate-700 rounded-xl px-3 py-2 text-xs font-semibold text-white focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent transition"
+              className="bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-xs font-semibold text-white focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent transition"
             >
               {Object.keys(configs).map(city => (
                 <option key={city} value={city}>{city}</option>
@@ -1465,7 +1560,7 @@ function SEOHeatmapInner({
               }}
               className={`px-3 py-1.5 rounded-lg text-xs font-extrabold whitespace-nowrap transition cursor-pointer border ${
                 idx === activeKeywordIndex
-                  ? 'bg-indigo-650 text-white border-indigo-600 shadow-sm hover:bg-indigo-700'
+                  ? 'bg-blue-600 text-white border-blue-600 shadow-sm hover:bg-blue-700'
                   : 'bg-slate-200 hover:bg-slate-300 border-slate-300 text-slate-800'
               }`}
             >
@@ -1487,14 +1582,14 @@ function SEOHeatmapInner({
                 <span className="text-indigo-600 font-medium font-mono">{activeKeyword}</span>
               </h3>
               <p className="text-xs text-slate-500 mt-0.5">
-                Simulated {selectedCity} GMB rankings. <strong className="text-indigo-650">Click any grid node</strong> to trigger Competitor Node Inspection.
+                Simulated {selectedCity} GMB rankings. <strong className="text-indigo-600">Click any grid node</strong> to trigger Competitor Node Inspection.
               </p>
             </div>
 
             <button
               onClick={handleLiveScan}
               disabled={scanning || liveApiScanning}
-              className="px-4 py-2 bg-indigo-600 hover:bg-indigo-750 text-white rounded-xl font-extrabold text-xs shadow-sm transition flex items-center gap-2 cursor-pointer disabled:opacity-50"
+              className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-extrabold text-xs shadow-sm transition flex items-center gap-2 cursor-pointer disabled:opacity-50"
               id="trigger_live_matrix_scan_btn"
             >
               <RefreshCw className={`w-4 h-4 ${scanning || liveApiScanning ? 'animate-spin' : ''}`} />
@@ -1588,7 +1683,7 @@ function SEOHeatmapInner({
 
                         // Check if node is currently inspected/active
                         const isInspected = selectedNode && selectedNode.x === node.x && selectedNode.y === node.y;
-                        const ringStyle = isInspected ? 'ring-4 ring-indigo-650 ring-offset-2 border-indigo-600 scale-110 z-20 shadow-lg' : 'border-white';
+                        const ringStyle = isInspected ? 'ring-4 ring-indigo-600 ring-offset-2 border-indigo-600 scale-110 z-20 shadow-lg' : 'border-white';
 
                         return (
                           <AdvancedMarker
@@ -1637,20 +1732,20 @@ function SEOHeatmapInner({
                   {/* Clean empty overlay state stating: 'No scan data available. Click [Trigger Live Matrix Scan] to generate your first report.' */}
                   {!hasScanData && (
                     <div className="absolute inset-0 bg-slate-900/10 backdrop-blur-[2px] flex flex-col items-center justify-center p-6 text-center z-10 animate-fadeIn">
-                      <div className="bg-slate-900/95 border border-slate-750 p-6 rounded-2xl max-w-sm space-y-4 shadow-2xl text-white">
+                      <div className="bg-slate-900/95 border border-slate-700 p-6 rounded-2xl max-w-sm space-y-4 shadow-2xl text-white">
                         <div className="bg-indigo-500/10 border border-indigo-500/20 p-3 rounded-2xl text-indigo-400 inline-block">
                           <Compass className="w-8 h-8 animate-pulse" />
                         </div>
                         <div className="space-y-1.5">
                           <h4 className="font-extrabold text-sm text-white tracking-tight">No scan data available</h4>
                           <p className="text-xs text-slate-300 leading-normal">
-                            No scan data available. Click <strong className="text-indigo-400 cursor-pointer underline hover:text-indigo-350" onClick={handleLiveScan}>[Trigger Live Matrix Scan]</strong> to generate your first report.
+                            No scan data available. Click <strong className="text-indigo-400 cursor-pointer underline hover:text-indigo-300" onClick={handleLiveScan}>[Trigger Live Matrix Scan]</strong> to generate your first report.
                           </p>
                         </div>
                         <button
                           type="button"
                           onClick={handleLiveScan}
-                          className="w-full py-2 bg-indigo-600 hover:bg-indigo-750 text-white font-extrabold rounded-xl text-xs tracking-tight transition-all duration-150 cursor-pointer shadow-md inline-flex items-center justify-center gap-1.5 border-none"
+                          className="w-full py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold rounded-xl text-xs tracking-tight transition-all duration-150 cursor-pointer shadow-md inline-flex items-center justify-center gap-1.5 border-none"
                         >
                           <RefreshCw className="w-3.5 h-3.5 animate-spin-hover" />
                           <span>Trigger Live Matrix Scan</span>
@@ -1672,7 +1767,7 @@ function SEOHeatmapInner({
                   {/* Informational Alerts */}
                   <div className="bg-indigo-50 border border-indigo-200 text-indigo-950 p-4 rounded-2xl text-center max-w-sm space-y-1.5 shadow-sm">
                     <p className="text-xs font-bold font-sans flex items-center justify-center gap-1.5">
-                      <Compass className="w-4 h-4 text-indigo-650" />
+                      <Compass className="w-4 h-4 text-indigo-600" />
                       <span>Google Map Visualization Ready</span>
                     </p>
                     <p className="text-[10px] text-slate-500 leading-normal font-sans">
@@ -1681,7 +1776,7 @@ function SEOHeatmapInner({
                     <button
                       type="button"
                       onClick={() => setIsSettingsOpen(true)}
-                      className="inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-750 text-white font-extrabold rounded-xl text-[10px] uppercase tracking-wider transition cursor-pointer border-none shadow-sm"
+                      className="inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold rounded-xl text-[10px] uppercase tracking-wider transition cursor-pointer border-none shadow-sm"
                     >
                       <Settings className="w-3 h-3 animate-spin-hover" />
                       <span>Configure API Key</span>
@@ -1707,7 +1802,7 @@ function SEOHeatmapInner({
                           }
 
                           const isInspected = selectedNode && selectedNode.x === cell.x && selectedNode.y === cell.y;
-                          const ringStyle = isInspected ? 'ring-4 ring-indigo-650 ring-offset-2 border-indigo-600 scale-110 z-20' : 'border-white';
+                          const ringStyle = isInspected ? 'ring-4 ring-indigo-600 ring-offset-2 border-indigo-600 scale-110 z-20' : 'border-white';
 
                           return (
                             <button
@@ -1737,8 +1832,8 @@ function SEOHeatmapInner({
                           <span className="w-2.5 h-2.5 rounded-full bg-rose-500 inline-block"></span>
                           <span>11+ (Low visibility)</span>
                         </div>
-                        <div className="text-slate-350">|</div>
-                        <div className="text-indigo-650 font-sans font-bold">Click any coordinate above to inspect competitors</div>
+                        <div className="text-slate-300">|</div>
+                        <div className="text-indigo-600 font-sans font-bold">Click any coordinate above to inspect competitors</div>
                       </div>
                     </>
                   ) : (
@@ -1756,7 +1851,7 @@ function SEOHeatmapInner({
                       <button
                         type="button"
                         onClick={handleLiveScan}
-                        className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-750 text-white font-extrabold rounded-xl text-xs tracking-tight transition-all duration-150 cursor-pointer shadow-sm inline-flex items-center justify-center gap-1.5 border-none"
+                        className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold rounded-xl text-xs tracking-tight transition-all duration-150 cursor-pointer shadow-sm inline-flex items-center justify-center gap-1.5 border-none"
                       >
                         <RefreshCw className="w-3.5 h-3.5 animate-spin-hover" />
                         <span>Trigger Live Matrix Scan</span>
@@ -1814,7 +1909,7 @@ function SEOHeatmapInner({
                     <h3 className="font-extrabold text-slate-900 text-sm tracking-tight font-sans">
                       Competitor Market Share
                     </h3>
-                    <p className="text-[11px] text-slate-450 font-sans mt-0.5">
+                    <p className="text-[11px] text-slate-400 font-sans mt-0.5">
                       Top players ranking across all search coordinates
                     </p>
                   </div>
@@ -1867,7 +1962,7 @@ function SEOHeatmapInner({
                               <td className="px-3 py-2.5 text-center font-mono font-bold">
                                 #{item.avgRank}
                               </td>
-                              <td className="px-3.5 py-2.5 text-right font-mono font-extrabold text-indigo-650">
+                              <td className="px-3.5 py-2.5 text-right font-mono font-extrabold text-indigo-600">
                                 {item.top3Share}%
                               </td>
                             </tr>
@@ -1918,8 +2013,8 @@ function SEOHeatmapInner({
                 <div className="flex items-center space-x-2">
                   <Activity className={`w-3.5 h-3.5 ${selectedScanDate === null && scannedConfigurations[`${selectedCity}_${activeKeyword}`] ? 'text-indigo-600 animate-pulse' : 'text-slate-500'}`} />
                   <div>
-                    <p className="font-extrabold text-slate-850">Current Live Scan</p>
-                    <p className="text-[10px] text-slate-450 mt-0.5">
+                    <p className="font-extrabold text-slate-800">Current Live Scan</p>
+                    <p className="text-[10px] text-slate-500 mt-0.5">
                       {scannedConfigurations[`${selectedCity}_${activeKeyword}`] 
                         ? 'Updated: Active scan currently loaded' 
                         : 'Status: No active scan run yet'}
@@ -1973,7 +2068,7 @@ function SEOHeatmapInner({
                           Viewing
                         </span>
                       ) : (
-                        <span className="text-[9px] text-slate-450 font-mono">
+                        <span className="text-[9px] text-slate-400 font-mono">
                           View Log
                         </span>
                       )}
@@ -1991,13 +2086,13 @@ function SEOHeatmapInner({
               <h3 className="font-bold text-slate-900 text-sm tracking-tight font-sans">Audit Recommendations</h3>
             </div>
 
-            <div className="text-xs space-y-3 font-sans text-slate-650">
+            <div className="text-xs space-y-3 font-sans text-slate-600">
               {!hasScanData ? (
-                <div className="bg-slate-50 text-slate-550 border border-slate-150 p-4 rounded-xl text-center font-medium">
+                <div className="bg-slate-50 text-slate-500 border border-slate-200 p-4 rounded-xl text-center font-medium">
                   No scan data available yet. Please complete a dynamic matrix scan to retrieve targeted SEO checklists.
                 </div>
               ) : Number(avgRank) <= 4 ? (
-                <div className="bg-emerald-50 text-emerald-800 border border-emerald-150 p-3 rounded-xl flex items-start gap-2">
+                <div className="bg-emerald-50 text-emerald-800 border border-emerald-200 p-3 rounded-xl flex items-start gap-2">
                   <CheckCircle className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
                   <div>
                     <strong className="block text-emerald-900 font-bold">Excellent Local Reach</strong>
@@ -2005,7 +2100,7 @@ function SEOHeatmapInner({
                   </div>
                 </div>
               ) : (
-                <div className="bg-amber-50 text-amber-800 border border-amber-150 p-3 rounded-xl flex items-start gap-2">
+                <div className="bg-amber-50 text-amber-800 border border-amber-200 p-3 rounded-xl flex items-start gap-2">
                   <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
                   <div>
                     <strong className="block text-amber-900 font-bold">Optimization Needed</strong>
@@ -2026,7 +2121,7 @@ function SEOHeatmapInner({
               ) : (
                 <div className="space-y-1.5 font-sans border-t pt-3 opacity-50">
                   <p className="font-semibold text-slate-500">Telemetry-driven next actions (Scan required):</p>
-                  <p className="text-[11px] text-slate-450 italic">Please run a dynamic matrix scan to load contextual metadata audits.</p>
+                  <p className="text-[11px] text-slate-400 italic">Please run a dynamic matrix scan to load contextual metadata audits.</p>
                 </div>
               )}
             </div>
@@ -2102,7 +2197,7 @@ function SEOHeatmapInner({
                     value={tempPlaceId}
                     onChange={(e) => setTempPlaceId(e.target.value)}
                     placeholder="e.g. ch_gmb_custom_1001"
-                    className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-550 transition font-mono bg-white"
+                    className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition font-mono bg-white"
                   />
                   <p className="text-[8px] text-slate-400 font-sans leading-normal">
                     Manually type or paste a custom Place ID, or search above to select matching profiles.
@@ -2112,7 +2207,7 @@ function SEOHeatmapInner({
 
               {/* Target Keywords (comma-separated) */}
               <div className="space-y-1.5">
-                <label className="text-[10px] uppercase font-bold text-slate-550 tracking-wider font-mono block">
+                <label className="text-[10px] uppercase font-bold text-slate-500 tracking-wider font-mono block">
                   Target Keywords (comma-separated)
                 </label>
                 <textarea
@@ -2121,7 +2216,7 @@ function SEOHeatmapInner({
                   value={tempKeywords}
                   onChange={(e) => setTempKeywords(e.target.value)}
                   placeholder="e.g. electrician, electrical repair, panel upgrade"
-                  className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-550 transition font-sans"
+                  className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition font-sans"
                 />
               </div>
 
@@ -2130,7 +2225,7 @@ function SEOHeatmapInner({
                 
                 {/* Search Radius */}
                 <div className="space-y-1.5">
-                  <label className="text-[10px] uppercase font-bold text-slate-550 tracking-wider font-mono block">
+                  <label className="text-[10px] uppercase font-bold text-slate-500 tracking-wider font-mono block">
                     Search Radius (miles)
                   </label>
                   <input
@@ -2140,19 +2235,19 @@ function SEOHeatmapInner({
                     max={100}
                     value={tempRadius}
                     onChange={(e) => setTempRadius(Number(e.target.value))}
-                    className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-550 transition"
+                    className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition"
                   />
                 </div>
 
                 {/* Grid Dimensions Dropdown */}
                 <div className="space-y-1.5">
-                  <label className="text-[10px] uppercase font-bold text-slate-550 tracking-wider font-mono block">
+                  <label className="text-[10px] uppercase font-bold text-slate-500 tracking-wider font-mono block">
                     Grid Dimensions
                   </label>
                   <select
                     value={tempGridSize}
                     onChange={(e) => setTempGridSize(e.target.value as any)}
-                    className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 bg-white text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-550 transition font-semibold"
+                    className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 bg-white text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition font-semibold"
                   >
                     <option value="3x3">3 x 3 Matrix</option>
                     <option value="5x5">5 x 5 Matrix</option>
@@ -2162,26 +2257,44 @@ function SEOHeatmapInner({
 
               </div>
 
-              {/* Automated Scan Frequency Dropdown */}
-              <div className="space-y-1.5">
-                <label className="text-[10px] uppercase font-bold text-slate-550 tracking-wider font-mono block">
-                  Automated Scan Frequency
-                </label>
-                <select
-                  value={tempScanFrequency}
-                  onChange={(e) => setTempScanFrequency(e.target.value as any)}
-                  className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 bg-white text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-550 transition font-semibold"
-                >
-                  <option value="Manual Only">Manual Only</option>
-                  <option value="Daily">Daily</option>
-                  <option value="Weekly">Weekly</option>
-                  <option value="Bi-Weekly">Bi-Weekly</option>
-                  <option value="Monthly">Monthly</option>
-                </select>
-                <p className="text-[9px] text-slate-400 font-sans">
-                  Choose default scheduling frequency to auto-refresh rank positions on Google Place ID grids.
-                </p>
+              {/* Scheduling & Frequency Row */}
+              <div className="grid grid-cols-2 gap-4">
+                
+                {/* Automated Scan Frequency Dropdown */}
+                <div className="space-y-1.5">
+                  <label className="text-[10px] uppercase font-bold text-slate-500 tracking-wider font-mono block">
+                    Automated Scan Frequency
+                  </label>
+                  <select
+                    value={tempScanFrequency}
+                    onChange={(e) => setTempScanFrequency(e.target.value as any)}
+                    className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 bg-white text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition font-semibold"
+                  >
+                    <option value="Manual Only">Manual Only</option>
+                    <option value="Daily">Daily</option>
+                    <option value="Weekly">Weekly</option>
+                    <option value="Bi-Weekly">Bi-Weekly</option>
+                    <option value="Monthly">Monthly</option>
+                  </select>
+                </div>
+
+                {/* Preferred Time Picker */}
+                <div className="space-y-1.5">
+                  <label className="text-[10px] uppercase font-bold text-slate-500 tracking-wider font-mono block">
+                    Preferred Time
+                  </label>
+                  <input
+                    type="time"
+                    value={tempPreferredTime}
+                    onChange={(e) => setTempPreferredTime(e.target.value)}
+                    className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 bg-white text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition font-semibold"
+                  />
+                </div>
+
               </div>
+              <p className="text-[9px] text-slate-400 font-sans">
+                Choose default scheduling frequency and daily time to auto-refresh rank positions on Google Place ID grids.
+              </p>
 
               {/* Dynamic Math Cost Calculator Card */}
               {(() => {
@@ -2241,7 +2354,7 @@ function SEOHeatmapInner({
                   </button>
                   <button
                     type="submit"
-                    className="px-4 py-2 bg-indigo-600 hover:bg-indigo-750 text-white rounded-xl text-xs font-bold shadow-xs flex items-center gap-1.5 transition duration-150 cursor-pointer"
+                    className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold shadow-xs flex items-center gap-1.5 transition duration-150 cursor-pointer"
                   >
                     <Save className="w-3.5 h-3.5" />
                     <span>Save</span>
@@ -2311,7 +2424,7 @@ function SEOHeatmapInner({
                           ? 'bg-amber-500 text-white'
                           : comp.rank <= 3
                           ? 'bg-slate-800 text-white'
-                          : 'bg-slate-200 text-slate-650'
+                          : 'bg-slate-200 text-slate-600'
                       }`}>
                         #{comp.rank}
                       </span>
@@ -2440,19 +2553,19 @@ function SEOHeatmapInner({
                     max={100}
                     value={newRadius}
                     onChange={(e) => setNewRadius(Number(e.target.value))}
-                    className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 text-slate-800 focus:outline-none focus:ring-2 focus:ring-cyan-550 transition font-mono"
+                    className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 text-slate-800 focus:outline-none focus:ring-2 focus:ring-cyan-500 transition font-mono"
                   />
                 </div>
 
                 {/* Grid Dimensions */}
                 <div className="space-y-1">
-                  <label className="text-[9px] uppercase font-bold text-slate-550 tracking-wider font-mono block">
+                  <label className="text-[9px] uppercase font-bold text-slate-500 tracking-wider font-mono block">
                     Grid Size
                   </label>
                   <select
                     value={newGridSize}
                     onChange={(e) => setNewGridSize(e.target.value as any)}
-                    className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 bg-white text-slate-800 focus:outline-none focus:ring-2 focus:ring-cyan-550 transition font-sans"
+                    className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 bg-white text-slate-800 focus:outline-none focus:ring-2 focus:ring-cyan-500 transition font-sans"
                   >
                     <option value="3x3">3 x 3 Matrix</option>
                     <option value="5x5">5 x 5 Matrix</option>
@@ -2492,7 +2605,7 @@ function SEOHeatmapInner({
           <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-sm w-full overflow-hidden transition-all duration-200 my-auto">
             
             {/* Modal Header */}
-            <div className="bg-slate-900 text-white px-5 py-4 flex items-center justify-between border-b border-slate-850">
+            <div className="bg-slate-900 text-white px-5 py-4 flex items-center justify-between border-b border-slate-800">
               <div className="flex items-center space-x-2">
                 <Settings className="w-4.5 h-4.5 text-indigo-400 rotate-12" />
                 <h3 className="font-extrabold text-sm tracking-tight font-sans">
@@ -2521,7 +2634,7 @@ function SEOHeatmapInner({
               
               {/* DataForSEO Credentials Input */}
               <div className="space-y-1.5 bg-white">
-                <label className="text-[9px] uppercase font-bold text-slate-550 tracking-wider font-mono block">
+                <label className="text-[9px] uppercase font-bold text-slate-500 tracking-wider font-mono block">
                   DataForSEO Base64 Auth Key
                 </label>
                 <input
@@ -2529,7 +2642,7 @@ function SEOHeatmapInner({
                   value={settingsAuthKey}
                   onChange={(e) => setSettingsAuthKey(e.target.value)}
                   placeholder="Enter Base64 Authorized String"
-                  className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-550 transition font-mono bg-white"
+                  className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition font-mono bg-white"
                 />
                 <p className="text-[9px] text-slate-400">
                   Example: <code>bG9naW46cGFzc3dvcmQ=</code>
@@ -2538,7 +2651,7 @@ function SEOHeatmapInner({
 
               {/* Google Maps Credentials Input */}
               <div className="space-y-1.5 bg-white">
-                <label className="text-[9px] uppercase font-bold text-slate-550 tracking-wider font-mono block">
+                <label className="text-[9px] uppercase font-bold text-slate-500 tracking-wider font-mono block">
                   Google Maps API Key
                 </label>
                 <input
@@ -2546,7 +2659,7 @@ function SEOHeatmapInner({
                   value={settingsGmapsApiKey}
                   onChange={(e) => setSettingsGmapsApiKey(e.target.value)}
                   placeholder="AIzaSy..."
-                  className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-550 transition font-mono bg-white"
+                  className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition font-mono bg-white"
                 />
                 <p className="text-[9px] text-slate-400">
                   Required to paint coordinate grids over high-fidelity interactive Google maps.
@@ -2565,7 +2678,7 @@ function SEOHeatmapInner({
                 <button
                   type="submit"
                   disabled={savingSettings}
-                  className="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-750 text-white disabled:bg-indigo-400 rounded-xl text-xs font-bold shadow-sm transition cursor-pointer border-none flex items-center justify-center gap-1.5"
+                  className="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white disabled:bg-indigo-400 rounded-xl text-xs font-bold shadow-sm transition cursor-pointer border-none flex items-center justify-center gap-1.5"
                 >
                   {savingSettings && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
                   <span>{savingSettings ? 'Saving...' : 'Save Settings'}</span>
