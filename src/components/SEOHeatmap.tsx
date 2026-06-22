@@ -70,7 +70,7 @@ const getZoomForRadius = (radius: number) => {
 };
 
 // MapController sub-component that leverages @vis.gl/react-google-maps internal hooks
-// to geocode the target profile's placeId (or the Service Area city string) and pan the map to those coordinates.
+// to query the target profile's placeId (or fallback to Murfreesboro) and pan the map to those coordinates.
 const MapController = ({
   selectedCity,
   currentConfig,
@@ -81,53 +81,63 @@ const MapController = ({
   onCenterResolved: (coords: { lat: number; lng: number }) => void;
 }) => {
   const map = useMap();
-  const geocodingLibrary = useMapsLibrary('geocoding');
+  const placesLibrary = useMapsLibrary('places');
 
   useEffect(() => {
-    if (!geocodingLibrary || !map) return;
-    if (typeof window === 'undefined' || !window.google || !window.google.maps) return;
+    if (!placesLibrary || !map) return;
+    if (typeof window === 'undefined' || !window.google || !window.google.maps || !window.google.maps.places) return;
 
-    const geocoder = new window.google.maps.Geocoder();
-    const targetId = currentConfig.targetPlaceId || currentConfig.placeId;
+    const targetPlaceId = currentConfig.targetPlaceId || currentConfig.placeId;
+    const fallbackCoords = { lat: 35.8468, lng: -86.3903 };
 
-    const handleGeocodeResult = (results: any, status: any) => {
-      if (status === 'OK' && results && results[0]) {
-        const loc = results[0].geometry.location;
-        const coords = { lat: loc.lat(), lng: loc.lng() };
-        onCenterResolved(coords);
-        map.panTo(coords);
-      } else {
-        console.warn(`Geocoder failed for target: ${targetId || selectedCity} with status: ${status}`);
-      }
-    };
-
-    if (targetId && targetId !== 'loc_placeholder' && !targetId.startsWith('loc_')) {
-      geocoder.geocode({ placeId: targetId }, handleGeocodeResult);
-    } else if (selectedCity) {
-      geocoder.geocode({ address: selectedCity }, handleGeocodeResult);
+    // Fallback if targetPlaceId is placeholder, custom internal (starts with loc_ or ch_gmb_ or other internal prefix), or missing
+    if (
+      !targetPlaceId || 
+      targetPlaceId === 'loc_placeholder' || 
+      targetPlaceId.startsWith('loc_') ||
+      targetPlaceId.startsWith('ch_gmb_')
+    ) {
+      console.log(`Using safe fallback centering for custom or internal Place ID: ${targetPlaceId}`);
+      map.panTo(fallbackCoords);
+      onCenterResolved(fallbackCoords);
+      return;
     }
-  }, [selectedCity, currentConfig.targetPlaceId, currentConfig.placeId, geocodingLibrary, map, onCenterResolved]);
 
-  // Explicitly center and pan to custom coordinates when targetPlaceId changes
-  useEffect(() => {
-    if (!geocodingLibrary || !map) return;
-    if (typeof window === 'undefined' || !window.google || !window.google.maps) return;
-    
-    const targetId = currentConfig.targetPlaceId;
-    if (!targetId || targetId === 'loc_placeholder' || targetId.startsWith('loc_')) return;
-
-    const geocoder = new window.google.maps.Geocoder();
-    geocoder.geocode({ placeId: targetId }, (results: any, status: any) => {
-      if (status === 'OK' && results && results[0]) {
-        const loc = results[0].geometry.location;
-        const coords = { lat: loc.lat(), lng: loc.lng() };
-        onCenterResolved(coords);
-        map.panTo(coords);
-      } else {
-        console.warn(`Force Map Pan Geocoder failed for: ${targetId} with status: ${status}`);
+    try {
+      const service = new google.maps.places.PlacesService(map);
+      service.getDetails({ placeId: targetPlaceId }, (place, status) => {
+        try {
+          if (
+            status === google.maps.places.PlacesServiceStatus.OK &&
+            place &&
+            place.geometry &&
+            place.geometry.location
+          ) {
+            const loc = place.geometry.location;
+            const coords = { lat: loc.lat(), lng: loc.lng() };
+            onCenterResolved(coords);
+            map.panTo(loc);
+          } else {
+            console.warn(`PlacesService.getDetails failed for: ${targetPlaceId} with status: ${status}. Falling back.`);
+            map.panTo(fallbackCoords);
+            onCenterResolved(fallbackCoords);
+          }
+        } catch (innerError) {
+          console.error("Error inside PlacesService callback, falling back:", innerError);
+          map.panTo(fallbackCoords);
+          onCenterResolved(fallbackCoords);
+        }
+      });
+    } catch (err) {
+      console.error("Error creating PlacesService or calling getDetails, falling back:", err);
+      try {
+        map.panTo(fallbackCoords);
+        onCenterResolved(fallbackCoords);
+      } catch (fallbackErr) {
+        console.error("Failed to apply fallback:", fallbackErr);
       }
-    });
-  }, [currentConfig.targetPlaceId, geocodingLibrary, map, onCenterResolved]);
+    }
+  }, [selectedCity, currentConfig.targetPlaceId, currentConfig.placeId, placesLibrary, map, onCenterResolved]);
 
   return null;
 };
