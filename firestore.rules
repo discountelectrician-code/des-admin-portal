@@ -120,6 +120,21 @@ service cloud.firestore {
         && (data.createdAt is string || data.createdAt is timestamp);
     }
 
+    function isValidCustomer(data) {
+      return data.keys().hasAll(['firstName'])
+        && data.firstName is string
+        && (!('lastName' in data) || data.lastName is string)
+        && (!('email' in data) || data.email is string)
+        && (!('phone' in data) || data.phone is string)
+        && (!('address' in data) || data.address is string)
+        && (!('status' in data) || data.status is string)
+        && (!('notes' in data) || data.notes is string)
+        && (!('company' in data) || data.company is string)
+        && (!('source' in data) || data.source is string)
+        && (!('createdAt' in data) || data.createdAt is timestamp || data.createdAt is string)
+        && (!('updatedAt' in data) || data.updatedAt is timestamp || data.updatedAt is string);
+    }
+
     function isValidSEOScan(data) {
       return data.keys().hasAll(['serviceArea', 'keyword', 'gridNodes', 'timestamp'])
         && data.serviceArea is string
@@ -221,6 +236,13 @@ service cloud.firestore {
       );
 
       // Only central administrators can revoke/delete tickets
+      allow delete: if isAdmin();
+    }
+
+    // CRM Customers
+    match /customers/{customerId} {
+      allow read: if isAdmin();
+      allow create, update: if isValidCustomer(incoming());
       allow delete: if isAdmin();
     }
 

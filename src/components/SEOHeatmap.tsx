@@ -35,7 +35,7 @@ interface CityConfig {
   keywords: string;
   gmbName: string;
   radius: number;
-  gridSize: '3x3' | '5x5' | '7x7';
+  gridSize: '3x3' | '5x5' | '7x7' | '9x9' | '11x11';
   placeId?: string;
   targetPlaceId?: string;
   scanFrequency?: 'Manual Only' | 'Daily' | 'Weekly' | 'Bi-Weekly' | 'Monthly';
@@ -142,7 +142,35 @@ const MapController = ({
   return null;
 };
 
-const getGridNodeCoordinates = (centerLat: number, centerLng: number, radiusInMiles: number, x: number, y: number, size: number) => {
+export interface RadialNode {
+  id: string;
+  x: number; // visual grid x float
+  y: number; // visual grid y float
+  ring: number;
+}
+
+const generateRadialGrid = (gridSizeStr: string): RadialNode[] => {
+  const maxRings = gridSizeStr === '3x3' ? 1 : gridSizeStr === '5x5' ? 2 : gridSizeStr === '7x7' ? 3 : gridSizeStr === '9x9' ? 4 : 5;
+  const nodes: RadialNode[] = [];
+  
+  nodes.push({ id: '0-0', x: 0, y: 0, ring: 0 });
+  
+  for (let r = 1; r <= maxRings; r++) {
+    const pointsInRing = r * 8;
+    for (let i = 0; i < pointsInRing; i++) {
+      const angleRad = ((i * 360) / pointsInRing * Math.PI) / 180;
+      nodes.push({
+        id: `${r}-${i}`,
+        x: r * Math.cos(angleRad),
+        y: r * Math.sin(angleRad),
+        ring: r
+      });
+    }
+  }
+  return nodes;
+};
+
+const getGridNodeCoordinates = (centerLat: number, centerLng: number, radiusInMiles: number, offsetX: number, offsetY: number, maxRings: number) => {
   const latDegreeRef = 69.0;
   const radLat = (centerLat * Math.PI) / 180;
   const lngDegreeRef = 69.0 * Math.cos(radLat);
@@ -151,8 +179,8 @@ const getGridNodeCoordinates = (centerLat: number, centerLng: number, radiusInMi
   const maxLngOffset = radiusInMiles / lngDegreeRef;
 
   // Spacing steps (-maxOffset to +maxOffset across size elements)
-  const xPercent = size > 1 ? (x / (size - 1)) * 2 - 1 : 0; 
-  const yPercent = size > 1 ? (y / (size - 1)) * 2 - 1 : 0; 
+  const xPercent = maxRings > 0 ? offsetX / maxRings : 0; 
+  const yPercent = maxRings > 0 ? offsetY / maxRings : 0; 
 
   // Invert yPercent so y=0 is north (top of the viewport) and y=(size-1) is south (bottom of viewport)
   return {
@@ -175,13 +203,14 @@ const INITIAL_CITY_CONFIGS: Record<string, CityConfig> = {
 };
 
 // Seed random generation based on city and keyword to keep ratings somewhat stable
-const getSeededRank = (city: string, keyword: string, x: number, y: number, size: number, scanDate: string | null = null) => {
-  let code = (city.charCodeAt(0) || 1) + (keyword.charCodeAt(0) || 1) + x + y;
+const getSeededRank = (city: string, keyword: string, nodeX: number, nodeY: number, maxRings: number, scanDate: string | null = null) => {
+  const hashVal = Math.abs(Math.floor(nodeX * 10) + Math.floor(nodeY * 10));
+  let code = (city.charCodeAt(0) || 1) + (keyword.charCodeAt(0) || 1) + hashVal;
   if (scanDate) {
     const charSum = scanDate.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
     code += (charSum % 13) + 3;
   }
-  const distFromCenter = Math.sqrt(Math.pow(x - size / 2, 2) + Math.pow(y - size / 2, 2));
+  const distFromCenter = Math.sqrt(Math.pow(nodeX, 2) + Math.pow(nodeY, 2));
   
   // Base rank depending on distance from center
   let base = Math.floor(distFromCenter * 2) + (code % 3) + 1;
@@ -197,6 +226,7 @@ interface Competitor {
   rank: number;
   name: string;
   reviews: number;
+  rating?: number;
   isUser: boolean;
 }
 
@@ -205,137 +235,91 @@ interface Competitor {
 const generateDynamicCompetitorsForNode = (
   city: string,
   keyword: string,
-  x: number,
-  y: number,
+  nodeX: number,
+  nodeY: number,
   userGmbName: string,
   userRank: number,
-  size: number
+  maxRings: number
 ): Competitor[] => {
-  const seed = (city.charCodeAt(0) || 1) + (keyword.charCodeAt(0) || 1) + x + y;
-  const results: Competitor[] = [];
-  
-  const isElectrician = keyword.toLowerCase().includes('electric');
-  const term = isElectrician ? 'Electrical' : 'Location';
-  
-  const suffixes = [
-    `${term} Pro Services`,
-    `Elite ${term} Services`,
-    `${term} Specialists`,
-    `Rapid ${term} Services`,
-    `${term} Experts`,
-    `${term} Solutions`,
-    `${term} Group`,
-    `${term} Wizards`,
-    `Reliable ${term}`
-  ];
-
-  for (let r = 1; r <= 5; r++) {
-    if (r === userRank) {
-      results.push({
-        rank: r,
-        name: userGmbName || 'Discount Electrical Service',
-        reviews: Math.abs((seed * 77) % 240) + 15,
-        isUser: true
-      });
-    } else {
-      const idx = Math.abs((seed + r) % suffixes.length);
-      const name = `${city} ${suffixes[idx]}`;
-      results.push({
-        rank: r,
-        name: name,
-        reviews: Math.abs(((seed + r) * 111) % 190) + 8,
-        isUser: false
-      });
-    }
-  }
-
-  // Include user if rank is > 5
-  if (userRank > 5) {
-    if (results.length >= 5) {
-      results.splice(4, 1, {
-        rank: userRank,
-        name: userGmbName || 'Discount Electrical Service',
-        reviews: Math.abs((seed * 77) % 240) + 15,
-        isUser: true
-      });
-    } else {
-      results.push({
-        rank: userRank,
-        name: userGmbName || 'Discount Electrical Service',
-        reviews: Math.abs((seed * 77) % 240) + 15,
-        isUser: true
-      });
-    }
-  }
-
-  return results.sort((a, b) => a.rank - b.rank);
+  return [];
 };
 
 // Generates real node competitors by partitioning and ranking the real competitor items parsed from DataForSEO
 export const generateRealCompetitorsForNode = (
   realItems: any[],
-  x: number,
-  y: number,
-  size: number,
+  nodeX: number,
+  nodeY: number,
+  maxRings: number,
   userGmbName: string,
   calculatedUserRank: number
 ): Competitor[] => {
   console.log("DEBUG - Total items received from API:", realItems);
-  const userGmbLower = (userGmbName || '').toLowerCase();
-  const rawPool = realItems.filter(item => !(item.name || '').toLowerCase().includes(userGmbLower));
-  const seed = x + y + size;
-  const nodeCompetitors: Competitor[] = [];
   
-  // Deterministic shuffle of the competitor pool for this geo-grid node
-  const pool = [...rawPool];
-  for (let i = pool.length - 1; i > 0; i--) {
-    const j = Math.abs((seed + i) % (i + 1));
-    const temp = pool[i];
-    pool[i] = pool[j];
-    pool[j] = temp;
+  if (!realItems || realItems.length === 0) {
+    return []; // Return empty array for dead zones with no local search results
   }
-  
-  // Add user at their specific calculated rank
-  const userItem = realItems.find(item => item.isUser);
-  nodeCompetitors.push({
-    name: userGmbName || 'Discount Electrical Service',
-    rank: calculatedUserRank,
-    reviews: userItem?.reviews || Math.abs((seed * 77) % 240) + 15,
-    isUser: true
+
+  // Use the exact competitor array from the API response and re-index
+  let competitors: Competitor[] = realItems.map((item: any) => ({
+    name: item.name,
+    rank: item.rank,
+    reviews: item.reviews || 0,
+    rating: item.rating || 0,
+    isUser: item.isUser
+  }));
+
+  // Ensure unique ranks for React key rendering and sort
+  competitors = competitors
+    .sort((a, b) => a.rank - b.rank)
+    .filter((comp, index, self) => {
+      // Keep all user locations, otherwise filter by unique name
+      if (comp.isUser) return true;
+      return index === self.findIndex((c) => c.name === comp.name && !c.isUser);
+    });
+
+  // Re-assign ranks based on index so the node gets the absolute truth of their local slice position
+  competitors.forEach((c, index) => {
+    c.rank = index + 1;
   });
-  
-  // Fill other ranks with real competitors
-  let poolIdx = 0;
-  for (let r = 1; r <= 20; r++) {
-    if (r === calculatedUserRank) continue;
-    
-    if (poolIdx < pool.length) {
-      const realItem = pool[poolIdx++];
-      nodeCompetitors.push({
-        name: realItem.name,
-        rank: r,
-        reviews: realItem.reviews || 10,
-        isUser: false
-      });
-    }
+
+  // Ensure user is present in the list if calculatedUserRank <= 20
+  if (calculatedUserRank <= 20 && !competitors.some((c: any) => c.isUser)) {
+    competitors.push({
+      name: userGmbName || 'Discount Electrical Service',
+      rank: calculatedUserRank,
+      reviews: Math.abs((nodeX + nodeY) * 77 % 240) + 15,
+      isUser: true
+    });
+    // Re-sort again if we pushed a simulated user
+    competitors.sort((a, b) => a.rank - b.rank);
   }
-  
-  return nodeCompetitors.sort((a, b) => a.rank - b.rank);
+
+  return competitors;
+};
+
+const getPopupCompetitors = (comps: Competitor[]) => {
+  const popupComps = comps.slice(0, 5);
+  comps.forEach((c) => {
+    if (c.isUser && !popupComps.some(pc => pc.rank === c.rank)) {
+      popupComps.push(c);
+    }
+  });
+  return popupComps.sort((a, b) => a.rank - b.rank);
 };
 
 // Unified helper to get the competitor list at a specific node coordinate (prioritizing real persistent data)
 export const getCompetitorsForNode = (
   city: string,
   keyword: string,
-  x: number,
-  y: number,
-  size: number,
+  nodeX: number,
+  nodeY: number,
+  maxRings: number,
   userGmbName: string,
   userRank: number,
   activeScanOrLog?: { gridNodes?: any[] } | null
 ): Competitor[] => {
   if (activeScanOrLog && activeScanOrLog.gridNodes) {
-    const matchingNode = activeScanOrLog.gridNodes.find((n: any) => n.x === x && n.y === y);
+    const matchingNode = activeScanOrLog.gridNodes.find((n: any) => (n.x === nodeX && n.y === nodeY) || Math.abs(n.x - nodeX) < 0.01 && Math.abs(n.y - nodeY) < 0.01);
     if (matchingNode) {
       if (matchingNode.keywords && matchingNode.keywords[keyword] && matchingNode.keywords[keyword].competitors) {
         return matchingNode.keywords[keyword].competitors;
@@ -344,53 +328,63 @@ export const getCompetitorsForNode = (
       }
     }
   }
-  return generateDynamicCompetitorsForNode(city, keyword, x, y, userGmbName, userRank, size);
+  return generateDynamicCompetitorsForNode(city, keyword, nodeX, nodeY, userGmbName, userRank, maxRings);
 };
 
 // Computes the general grid stats for all top competitors to build the global marketplace leaderboard
 const getLeaderboard = (
   city: string,
   keyword: string,
-  size: number,
+  maxRings: number,
   userGmbName: string,
   scanDate: string | null,
   activeScanOrLog?: { gridNodes?: any[] } | null
 ) => {
-  const competitorStats: Record<string, { totalRank: number; top3Count: number; isUser: boolean; count: number }> = {};
+  const competitorStats: Record<string, { totalRank: number; top3Count: number; isUser: boolean; count: number; reviews: number; rating: number }> = {};
   
   const userName = userGmbName || 'Discount Electrical Service';
-  competitorStats[userName] = { totalRank: 0, top3Count: 0, isUser: true, count: 0 };
+  competitorStats[userName] = { totalRank: 0, top3Count: 0, isUser: true, count: 0, reviews: 0, rating: 0 };
 
-  for (let y = 0; y < size; y++) {
-    for (let x = 0; x < size; x++) {
-      let userRank = getSeededRank(city, keyword, x, y, size, scanDate);
-      if (activeScanOrLog && activeScanOrLog.gridNodes) {
-        const matchingNode = activeScanOrLog.gridNodes.find((n: any) => n.x === x && n.y === y);
-        if (matchingNode) {
-          if (matchingNode.keywords && matchingNode.keywords[keyword]) {
-            userRank = matchingNode.keywords[keyword].userRank;
-          } else {
-            userRank = matchingNode.userRank;
-          }
+  const radialNodes = maxRings === 1 ? generateRadialGrid('3x3') : maxRings === 2 ? generateRadialGrid('5x5') : maxRings === 3 ? generateRadialGrid('7x7') : maxRings === 4 ? generateRadialGrid('9x9') : generateRadialGrid('11x11');
+
+  let totalValidCells = 0;
+
+  for (const node of radialNodes) {
+    let userRank = getSeededRank(city, keyword, node.x, node.y, maxRings, scanDate);
+    if (activeScanOrLog && activeScanOrLog.gridNodes) {
+      const matchingNode = activeScanOrLog.gridNodes.find((n: any) => n.id === node.id || (n.x === node.x && n.y === node.y));
+      if (matchingNode) {
+        if (matchingNode.keywords && matchingNode.keywords[keyword]) {
+          userRank = matchingNode.keywords[keyword].userRank;
+        } else {
+          userRank = matchingNode.userRank;
         }
       }
-      
-      const competitors = getCompetitorsForNode(city, keyword, x, y, size, userGmbName, userRank, activeScanOrLog);
-      
+    }
+    
+    const competitors = getCompetitorsForNode(city, keyword, node.x, node.y, maxRings, userGmbName, userRank, activeScanOrLog);
+    
+    if (competitors && competitors.length > 0) {
+      totalValidCells++;
       competitors.forEach((c) => {
         if (!competitorStats[c.name]) {
-          competitorStats[c.name] = { totalRank: 0, top3Count: 0, isUser: c.isUser, count: 0 };
+          competitorStats[c.name] = { totalRank: 0, top3Count: 0, isUser: c.isUser, count: 0, reviews: c.reviews || 0, rating: c.rating || 0 };
         }
         competitorStats[c.name].totalRank += c.rank;
         if (c.rank <= 3) {
           competitorStats[c.name].top3Count++;
         }
         competitorStats[c.name].count++;
+        
+        if (c.reviews && c.reviews > competitorStats[c.name].reviews) {
+          competitorStats[c.name].reviews = c.reviews;
+          competitorStats[c.name].rating = c.rating || 0;
+        }
       });
     }
   }
 
-  const totalCells = size * size;
+  const totalCells = totalValidCells > 0 ? totalValidCells : 1;
   const items = Object.entries(competitorStats).map(([name, stats]) => {
     const avg = stats.count > 0 ? stats.totalRank / stats.count : 6.0;
     const share = stats.count > 0 ? (stats.top3Count / totalCells) * 100 : 0;
@@ -398,13 +392,14 @@ const getLeaderboard = (
       name,
       avgRank: parseFloat(avg.toFixed(1)),
       top3Share: Math.round(share),
-      isUser: stats.isUser
+      isUser: stats.isUser,
+      reviews: stats.reviews,
+      rating: stats.rating
     };
   });
 
   return items
-    .sort((a, b) => b.top3Share - a.top3Share || a.avgRank - b.avgRank)
-    .slice(0, 5);
+    .sort((a, b) => b.top3Share - a.top3Share || a.avgRank - b.avgRank);
 };
 
 enum OperationType {
@@ -784,7 +779,7 @@ function SEOHeatmapInner({
   const [tempKeywords, setTempKeywords] = useState('');
   const [tempGmbName, setTempGmbName] = useState('');
   const [tempRadius, setTempRadius] = useState(10);
-  const [tempGridSize, setTempGridSize] = useState<'3x3' | '5x5' | '7x7'>('5x5');
+  const [tempGridSize, setTempGridSize] = useState<'3x3' | '5x5' | '7x7' | '9x9' | '11x11'>('5x5');
   const [tempPlaceId, setTempPlaceId] = useState<string>('');
   const [tempScanFrequency, setTempScanFrequency] = useState<'Manual Only' | 'Daily' | 'Weekly' | 'Bi-Weekly' | 'Monthly'>('Manual Only');
   const [tempPreferredTime, setTempPreferredTime] = useState<string>('08:00');
@@ -799,10 +794,10 @@ function SEOHeatmapInner({
   const [newKeywords, setNewKeywords] = useState('electrician, wiring repair, residential lighting');
   const [newGmbName, setNewGmbName] = useState('Discount Electrical Service');
   const [newRadius, setNewRadius] = useState(10);
-  const [newGridSize, setNewGridSize] = useState<'3x3' | '5x5' | '7x7'>('5x5');
+  const [newGridSize, setNewGridSize] = useState<'3x3' | '5x5' | '7x7' | '9x9' | '11x11'>('5x5');
 
   // Competitor Node inspection states
-  const [selectedNode, setSelectedNode] = useState<{ x: number; y: number; rank: number } | null>(null);
+  const [selectedNode, setSelectedNode] = useState<{ x: number; y: number; rank: number; competitors?: any[] } | null>(null);
 
   // Selected scan date from history (null means current active scan)
   const [selectedScanDate, setSelectedScanDate] = useState<string | null>(null);
@@ -982,27 +977,37 @@ function SEOHeatmapInner({
       const logs: ScanLog[] = [];
       allScans.forEach((d) => {
         const nodes = d.gridNodes || [];
-        const totalNodes = nodes.length || 1;
         
+        let validNodes = 0;
+        let sumRank = 0;
+        let top3Count = 0;
+
         // Compute statistics for the active/selected keyword dynamically!
-        const sumRank = nodes.reduce((acc: number, n: any) => {
+        nodes.forEach((n: any) => {
+          let hasData = false;
           let r = n.userRank || 21;
+          
           if (n.keywords && n.keywords[keyword]) {
             r = n.keywords[keyword].userRank;
+            if (n.keywords[keyword].competitors && n.keywords[keyword].competitors.length > 0) {
+              hasData = true;
+            }
+          } else if (n.competitors && n.competitors.length > 0) {
+             hasData = true;
           }
-          return acc + r;
-        }, 0);
-        
-        const top3Count = nodes.filter((n: any) => {
-          let r = n.userRank || 21;
-          if (n.keywords && n.keywords[keyword]) {
-            r = n.keywords[keyword].userRank;
+
+          if (hasData) {
+            validNodes++;
+            sumRank += r;
+            if (r <= 3) {
+              top3Count++;
+            }
           }
-          return r <= 3;
-        }).length;
+        });
         
-        const avgRankVal = (sumRank / totalNodes).toFixed(1);
-        const shareVal = Math.round((top3Count / totalNodes) * 100);
+        const safeTotalNodes = validNodes > 0 ? validNodes : 1;
+        const avgRankVal = (sumRank / safeTotalNodes).toFixed(1);
+        const shareVal = Math.round((top3Count / safeTotalNodes) * 100);
         
         const scanDate = new Date(d.timestamp);
         const dateOptions: Intl.DateTimeFormatOptions = { month: 'long', day: 'numeric', year: 'numeric' };
@@ -1137,25 +1142,47 @@ function SEOHeatmapInner({
     }, 1000);
   };
 
-  const handleDeleteServiceArea = () => {
-    const keys = Object.keys(configs);
-    if (keys.length <= 1) {
-      alert("At least one service area profile must be maintained. Cannot delete the only remaining profile.");
-      return;
-    }
-    const confirmed = window.confirm(`Are you sure you want to delete the "${selectedCity}" service area profile? This action will completely remove its configurations.`);
+  const handleRemoveArea = (cityToRemove: string) => {
+    setConfigs(prev => {
+      const copy = { ...prev };
+      delete copy[cityToRemove];
+      const remainingKeys = Object.keys(copy);
+      if (remainingKeys.length > 0) {
+        if (selectedCity === cityToRemove) {
+          setSelectedCity(remainingKeys[0]);
+          setActiveKeywordIndex(0);
+          setSelectedNode(null);
+          setSelectedScanDate(null);
+        }
+      } else {
+        setSelectedCity('');
+        setActiveKeywordIndex(0);
+        setSelectedNode(null);
+        setSelectedScanDate(null);
+        setScannedConfigurations({});
+        setPastScans({});
+        setScanProgress(0);
+        setScanning(false);
+        setActiveScanData(null);
+      }
+      return copy;
+    });
+    setIsModalOpen(false);
+  };
+
+  const handleClearAllAreas = () => {
+    const confirmed = window.confirm("Are you sure you want to clear all service area profiles? This action cannot be undone.");
     if (confirmed) {
-      const remainingKeys = keys.filter(k => k !== selectedCity);
-      const nextCity = remainingKeys[0];
-      setConfigs(prev => {
-        const copy = { ...prev };
-        delete copy[selectedCity];
-        return copy;
-      });
-      setSelectedCity(nextCity);
+      setConfigs({});
+      setSelectedCity('');
       setActiveKeywordIndex(0);
       setSelectedNode(null);
-      setIsModalOpen(false);
+      setSelectedScanDate(null);
+      setScannedConfigurations({});
+      setPastScans({});
+      setScanProgress(0);
+      setScanning(false);
+      setActiveScanData(null);
     }
   };
 
@@ -1196,97 +1223,114 @@ function SEOHeatmapInner({
     triggerScan();
 
     try {
-      console.log('Initiating parallel DataForSEO Live GMB Heatmap list scans for all keywords:', keywordList);
+      const center = resolvedCenter || getCityCenter(selectedCity, currentConfig);
+      const radialNodes = generateRadialGrid(currentConfig.gridSize);
+      const maxRings = currentConfig.gridSize === '3x3' ? 1 : currentConfig.gridSize === '5x5' ? 2 : currentConfig.gridSize === '7x7' ? 3 : currentConfig.gridSize === '9x9' ? 4 : 5;
+
+      console.log('Initiating sequential DataForSEO Live GMB Heatmap list scans for all keywords:', keywordList);
       
-      const scanPromises = keywordList.map(async (kw) => {
+      const results = [];
+      for (const kw of keywordList) {
         const payload = {
           name: selectedCity,
           keywords: kw,
           gmbName: currentConfig.gmbName,
           radius: currentConfig.radius,
           gridSize: currentConfig.gridSize,
-          placeId: currentConfig.placeId
+          placeId: currentConfig.placeId,
+          coordinates: radialNodes.map(node => getGridNodeCoordinates(center.lat, center.lng, currentConfig.radius, node.x, node.y, maxRings))
         };
-        console.log(`Firing parallel scanner request for: "${kw}"`);
+        console.log(`Firing sequential scanner request for: "${kw}" with ${payload.coordinates.length} coordinates`);
         const data = await runLiveHeatmapScan(payload, dataforseoAuthKey);
-        return { keyword: kw, data };
-      });
+        results.push({ keyword: kw, data });
+      }
 
-      const results = await Promise.all(scanPromises);
-      console.log('Parallel DataForSEO GMB results resolved successfully:', results);
+      console.log('Sequential DataForSEO GMB results resolved successfully:', results);
 
-      // Extract real competitor search listings for each keyword response
-      const keywordDataMap: Record<string, any[]> = {};
+      // Extract real competitor search listings for each keyword response and node
+      const keywordDataMap: Record<string, Record<string, any[]>> = {};
       results.forEach(({ keyword, data }) => {
-        const realItems: any[] = [];
+        keywordDataMap[keyword] = {};
         try {
           const tasks = data?.tasks || [];
-          for (const task of tasks) {
+          tasks.forEach((task: any, index: number) => {
+            const nodeId = radialNodes[index]?.id;
+            if (!nodeId) return;
+            
+            const realItems: any[] = [];
             const resList = task?.result || [];
             for (const res of resList) {
               const items = res?.items || [];
               for (const item of items) {
                 if (item?.title) {
-                  const isUser = item.title.toLowerCase().includes(currentConfig.gmbName.toLowerCase()) || 
-                                 (currentConfig.gmbName && item.title.toLowerCase().startsWith(currentConfig.gmbName.slice(0, 5).toLowerCase()));
+                  const TARGET_PLACE_ID = 'ChIJmwiSW-OR748RsEl_giM-IMI';
+                  const isUser = item.place_id === TARGET_PLACE_ID;
                   realItems.push({
                     name: item.title,
-                    rank: item.rank_absolute || item.rank_group || 21,
+                    rank: item.rank_group || item.rank_absolute || 21,
                     reviews: item.rating?.votes_count || item.reviews_count || 0,
+                    rating: item.rating?.value || 0,
                     isUser: isUser
                   });
                 }
               }
             }
-          }
+            keywordDataMap[keyword][nodeId] = realItems;
+          });
         } catch (err) {
           console.error(`Error parsing items for keyword ${keyword}:`, err);
         }
-        keywordDataMap[keyword] = realItems;
       });
 
       // Save on Scan: Create the unified gridNodes array
-      const sizeVal = currentConfig.gridSize === '3x3' ? 3 : currentConfig.gridSize === '5x5' ? 5 : 7;
-      const center = resolvedCenter || getCityCenter(selectedCity, currentConfig);
       const gridNodesToSave = [];
       
-      for (let y = 0; y < sizeVal; y++) {
-        for (let x = 0; x < sizeVal; x++) {
-          const coords = getGridNodeCoordinates(center.lat, center.lng, currentConfig.radius, x, y, sizeVal);
+      for (const node of radialNodes) {
+        const coords = getGridNodeCoordinates(center.lat, center.lng, currentConfig.radius, node.x, node.y, maxRings);
+        
+        const keywordsMap: Record<string, { userRank: number; competitors: any[] }> = {};
+        
+        keywordList.forEach((kw) => {
+          const realItems = keywordDataMap[kw]?.[node.id] || [];
+          const userInReal = realItems.find((item: any) => item.isUser);
+          const distFromCenter = Math.sqrt(Math.pow(node.x, 2) + Math.pow(node.y, 2));
+          const decay = Math.floor(distFromCenter * 1.5);
           
-          const keywordsMap: Record<string, { userRank: number; competitors: any[] }> = {};
+          let calculatedUserRank = 21;
           
-          keywordList.forEach((kw) => {
-            const realItems = keywordDataMap[kw] || [];
-            const userInReal = realItems.find(item => item.isUser);
-            const baseUserRank = userInReal ? userInReal.rank : getSeededRank(selectedCity, kw, x, y, sizeVal, null);
-            
-            // Core distance decay multiplier
-            const distFromCenter = Math.sqrt(Math.pow(x - sizeVal / 2, 2) + Math.pow(y - sizeVal / 2, 2));
-            const decay = Math.floor(distFromCenter * 1.5);
-            const calculatedUserRank = Math.min(21, baseUserRank + decay);
-            
-            const competitors = generateRealCompetitorsForNode(realItems, x, y, sizeVal, currentConfig.gmbName, calculatedUserRank);
+          if (realItems && realItems.length > 0) {
+            const competitors = generateRealCompetitorsForNode(realItems, node.x, node.y, maxRings, currentConfig.gmbName, 21);
+            const userInComps = competitors.find(c => c.isUser);
+            calculatedUserRank = userInComps ? userInComps.rank : 21;
             
             keywordsMap[kw] = {
               userRank: calculatedUserRank,
               competitors: competitors
             };
-          });
+          } else {
+            const baseUserRank = getSeededRank(selectedCity, kw, node.x, node.y, maxRings, null);
+            calculatedUserRank = Math.min(21, baseUserRank + decay);
+            const competitors = generateRealCompetitorsForNode([], node.x, node.y, maxRings, currentConfig.gmbName, calculatedUserRank);
+            
+            keywordsMap[kw] = {
+              userRank: calculatedUserRank,
+              competitors: competitors
+            };
+          }
+        });
 
-          const defaultKw = keywordList[0] || 'electrician';
-          const defaultRank = keywordsMap[defaultKw]?.userRank || 21;
+        const defaultKw = keywordList[0] || 'electrician';
+        const defaultRank = keywordsMap[defaultKw]?.userRank || 21;
 
-          gridNodesToSave.push({
-            id: `${x}-${y}`,
-            latitude: coords.lat,
-            longitude: coords.lng,
-            userRank: defaultRank,
-            x: x,
-            y: y,
-            keywords: keywordsMap
-          });
-        }
+        gridNodesToSave.push({
+          id: node.id,
+          latitude: coords.lat,
+          longitude: coords.lng,
+          userRank: defaultRank,
+          x: node.x,
+          y: node.y,
+          keywords: keywordsMap
+        });
       }
 
       const scanId = `scan_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
@@ -1303,6 +1347,17 @@ function SEOHeatmapInner({
         await setDoc(docRef, scanPayload);
         // Automatically fetch and reload latest scan and logs from Firestore to ensure perfect state sync
         await loadLatestScanAndHistory(selectedCity, activeKeyword);
+        
+        // Refresh balance after scan completes
+        if (dataforseoAuthKey.trim()) {
+          try {
+            const updatedBalance = await fetchDataForSEOBalance(dataforseoAuthKey.trim());
+            setApiBalance(updatedBalance);
+            setBalanceError(false);
+          } catch (err) {
+            console.error("Error refreshing API balance:", err);
+          }
+        }
       } catch (dbErr: any) {
         handleFirestoreError(dbErr, OperationType.WRITE, `seo_scans/${scanId}`);
       }
@@ -1347,18 +1402,18 @@ function SEOHeatmapInner({
         }));
 
         // Dynamically compute exact stats to store in the past scan history log
-        const sizeVal = currentConfig.gridSize === '3x3' ? 3 : currentConfig.gridSize === '5x5' ? 5 : 7;
+        const radialNodes = generateRadialGrid(currentConfig.gridSize);
+        const maxRings = currentConfig.gridSize === '3x3' ? 1 : currentConfig.gridSize === '5x5' ? 2 : currentConfig.gridSize === '7x7' ? 3 : currentConfig.gridSize === '9x9' ? 4 : 5;
+        
         let runningTotalRank = 0;
         let runningTop3Count = 0;
-        const totalNodes = sizeVal * sizeVal;
+        const totalNodes = radialNodes.length;
         
-        for (let y = 0; y < sizeVal; y++) {
-          for (let x = 0; x < sizeVal; x++) {
-            const r = getSeededRank(selectedCity, activeKeyword, x, y, sizeVal, null);
-            runningTotalRank += r;
-            if (r <= 3) {
-              runningTop3Count++;
-            }
+        for (const node of radialNodes) {
+          const r = getSeededRank(selectedCity, activeKeyword, node.x, node.y, maxRings, null);
+          runningTotalRank += r;
+          if (r <= 3) {
+            runningTop3Count++;
           }
         }
         const calculatedAvgRank = (runningTotalRank / totalNodes).toFixed(1);
@@ -1387,7 +1442,8 @@ function SEOHeatmapInner({
   };
 
   // Grid details calculations
-  const size = currentConfig.gridSize === '3x3' ? 3 : currentConfig.gridSize === '5x5' ? 5 : 7;
+  const radialNodes = generateRadialGrid(currentConfig.gridSize);
+  const maxRings = currentConfig.gridSize === '3x3' ? 1 : currentConfig.gridSize === '5x5' ? 2 : currentConfig.gridSize === '7x7' ? 3 : currentConfig.gridSize === '9x9' ? 4 : 5;
   
   // Find if there is a selected scan log matching selectedScanDate
   const currentLogs = pastScans[selectedCity] || [];
@@ -1396,44 +1452,66 @@ function SEOHeatmapInner({
   // Calculate average rating score in view
   let totalRank = 0;
   let top3PercentageSum = 0;
+  let validCellCount = 0;
   const gridCells = [];
   
-  for (let y = 0; y < size; y++) {
-    for (let x = 0; x < size; x++) {
-      let rank = getSeededRank(selectedCity, activeKeyword, x, y, size, selectedScanDate);
-      
-      // Override from database/state scan data if available
-      if (selectedScanDate !== null) {
-        if (selectedLog && selectedLog.gridNodes) {
-          const matchingNode = selectedLog.gridNodes.find(n => n.x === x && n.y === y);
-          if (matchingNode) {
-            if (matchingNode.keywords && matchingNode.keywords[activeKeyword]) {
-              rank = matchingNode.keywords[activeKeyword].userRank;
-            } else {
-              rank = matchingNode.userRank;
-            }
-          }
-        }
-      } else if (activeScanData && activeScanData.serviceArea === selectedCity && 
-                 (activeScanData.keyword === activeKeyword || (activeScanData.keyword && activeScanData.keyword.split(',').map((k: any) => k.trim()).includes(activeKeyword)))) {
-        if (activeScanData.gridNodes) {
-          const matchingNode = activeScanData.gridNodes.find(n => n.x === x && n.y === y);
-          if (matchingNode) {
-            if (matchingNode.keywords && matchingNode.keywords[activeKeyword]) {
-              rank = matchingNode.keywords[activeKeyword].userRank;
-            } else {
-              rank = matchingNode.userRank;
-            }
+  for (const node of radialNodes) {
+    let rank = getSeededRank(selectedCity, activeKeyword, node.x, node.y, maxRings, selectedScanDate);
+    
+    // Override from database/state scan data if available
+    if (selectedScanDate !== null) {
+      if (selectedLog && selectedLog.gridNodes) {
+        const matchingNode = selectedLog.gridNodes.find(n => n.id === node.id || (n.x === node.x && n.y === node.y));
+        if (matchingNode) {
+          if (matchingNode.keywords && matchingNode.keywords[activeKeyword]) {
+            rank = matchingNode.keywords[activeKeyword].userRank;
+          } else {
+            rank = matchingNode.userRank;
           }
         }
       }
-      
+    } else if (activeScanData && activeScanData.serviceArea === selectedCity && 
+               (activeScanData.keyword === activeKeyword || (activeScanData.keyword && activeScanData.keyword.split(',').map((k: any) => k.trim()).includes(activeKeyword)))) {
+      if (activeScanData.gridNodes) {
+        const matchingNode = activeScanData.gridNodes.find((n: any) => n.id === node.id || (n.x === node.x && n.y === node.y));
+        if (matchingNode) {
+          if (matchingNode.keywords && matchingNode.keywords[activeKeyword]) {
+            rank = matchingNode.keywords[activeKeyword].userRank;
+          } else {
+            rank = matchingNode.userRank;
+          }
+        }
+      }
+    }
+    
+    const comps = getCompetitorsForNode(
+      selectedCity,
+      activeKeyword,
+      node.x,
+      node.y,
+      maxRings,
+      currentConfig.gmbName,
+      rank,
+      selectedScanDate !== null ? selectedLog : activeScanData
+    );
+
+    const hasData = comps && comps.length > 0;
+    
+    if (hasData) {
+      const userComp = comps.find(c => c.isUser);
+      if (userComp) {
+        rank = userComp.rank;
+      } else {
+        rank = 21;
+      }
       totalRank += rank;
+      validCellCount++;
       if (rank <= 3) {
         top3PercentageSum++;
       }
-      gridCells.push({ x, y, rank });
     }
+    
+    gridCells.push({ id: node.id, x: node.x, y: node.y, ring: node.ring, rank, hasData });
   }
 
   // Check if live scan data exists in state for the selected city and active keyword
@@ -1444,8 +1522,9 @@ function SEOHeatmapInner({
      (activeScanData.keyword === activeKeyword || (activeScanData.keyword && activeScanData.keyword.split(',').map((k: any) => k.trim()).includes(activeKeyword))))
   );
 
-  const avgRank = hasScanData ? (totalRank / gridCells.length).toFixed(1) : '-';
-  const shareOfVoice = hasScanData ? Math.round((top3PercentageSum / gridCells.length) * 100) : '-';
+  const safeCellCount = validCellCount > 0 ? validCellCount : 1;
+  const avgRank = hasScanData ? (totalRank / safeCellCount).toFixed(1) : '-';
+  const shareOfVoice = hasScanData ? Math.round((top3PercentageSum / safeCellCount) * 100) : '-';
 
   return (
     <div id="seo_heatmap_dashboard" className="space-y-6 max-w-7xl mx-auto px-2 pb-12">
@@ -1465,22 +1544,54 @@ function SEOHeatmapInner({
 
         {/* Dropdown & Dynamic area addition options */}
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
-          <div className="flex items-center space-x-2">
-            <span className="text-xs font-bold text-slate-300 shrink-0">Service Area:</span>
-            <select
-              value={selectedCity}
-              onChange={(e) => {
-                setSelectedCity(e.target.value);
-                setActiveKeywordIndex(0);
-                setSelectedNode(null);
-                setSelectedScanDate(null);
-              }}
-              className="bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-xs font-semibold text-white focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent transition"
-            >
-              {Object.keys(configs).map(city => (
-                <option key={city} value={city}>{city}</option>
-              ))}
-            </select>
+          <div className="flex items-center space-x-2 flex-wrap">
+            <span className="text-xs font-bold text-slate-300 shrink-0 mr-1">Service Area:</span>
+            {Object.keys(configs).length > 0 && (
+              <button
+                type="button"
+                onClick={handleClearAllAreas}
+                className="text-[10px] text-slate-400 hover:text-rose-400 font-mono tracking-wider transition-colors cursor-pointer mr-2"
+                title="Clear all service areas"
+              >
+                [CLEAR ALL]
+              </button>
+            )}
+            
+            {Object.keys(configs).length === 0 ? (
+              <span className="text-[11px] text-slate-500 italic mr-2">No areas configured</span>
+            ) : (
+              Object.keys(configs).map((city) => (
+                <div 
+                  key={city}
+                  className={`flex items-center space-x-1 px-2.5 py-1.5 rounded-xl border text-[11px] font-semibold transition mb-1 ${
+                    selectedCity === city 
+                      ? 'bg-slate-800 border-slate-600 text-white shadow-sm' 
+                      : 'bg-slate-900 border-slate-800 text-slate-400'
+                  }`}
+                >
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedCity(city);
+                      setActiveKeywordIndex(0);
+                      setSelectedNode(null);
+                      setSelectedScanDate(null);
+                    }}
+                    className="cursor-pointer hover:text-white transition"
+                  >
+                    {city}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleRemoveArea(city)}
+                    className="text-slate-500 hover:text-rose-400 rounded-full hover:bg-slate-700 p-0.5 transition cursor-pointer flex items-center justify-center shrink-0 ml-1"
+                    title={`Remove ${city}`}
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </div>
+              ))
+            )}
 
             {/* Scalable Service Areas: Add New Area Button */}
             <button
@@ -1539,8 +1650,28 @@ function SEOHeatmapInner({
         </div>
       </div>
 
-      {/* Target parameters summary widget */}
-      <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+      {Object.keys(configs).length === 0 ? (
+        <div className="bg-slate-50 border border-slate-200 border-dashed rounded-2xl p-12 flex flex-col items-center justify-center text-center mt-6">
+          <div className="bg-cyan-100 text-cyan-600 p-4 rounded-full mb-4">
+            <Map className="w-8 h-8" />
+          </div>
+          <h2 className="text-lg font-extrabold text-slate-800 mb-2">No Service Areas Configured</h2>
+          <p className="text-slate-500 text-sm max-w-md mb-6">
+            Get started by adding a service area profile to track local SEO performance, grid rankings, and competitor market share.
+          </p>
+          <button
+            type="button"
+            onClick={() => setIsAddAreaOpen(true)}
+            className="bg-cyan-600 hover:bg-cyan-700 text-white font-bold px-6 py-2.5 rounded-xl shadow-sm flex items-center gap-2 transition cursor-pointer"
+          >
+            <Plus className="w-4 h-4" />
+            <span>Add Service Area</span>
+          </button>
+        </div>
+      ) : (
+        <>
+          {/* Target parameters summary widget */}
+          <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
         <div className="space-y-1.5 flex-1 w-full">
           <div className="flex flex-wrap items-center gap-2">
             <span className="bg-slate-200 text-slate-700 font-bold font-mono text-[10px] px-2 py-0.5 rounded-full">
@@ -1557,7 +1688,7 @@ function SEOHeatmapInner({
             <MapPin className="w-3.5 h-3.5 text-slate-400 shrink-0" />
             <span>Radius: <strong className="text-slate-700">{currentConfig.radius} miles</strong></span>
             <span className="text-slate-300">|</span>
-            <span>Grid: <strong className="text-slate-700">{currentConfig.gridSize} ({size * size} geo-points)</strong></span>
+            <span>Grid: <strong className="text-slate-700">{currentConfig.gridSize} ({radialNodes.length} geo-points)</strong></span>
           </div>
         </div>
 
@@ -1649,14 +1780,15 @@ function SEOHeatmapInner({
 
             // Compute coordinates for all GridNodes
             const gridNodes = gridCells.map((cell) => {
-              const coords = getGridNodeCoordinates(center.lat, center.lng, currentConfig.radius, cell.x, cell.y, size);
+              const coords = getGridNodeCoordinates(center.lat, center.lng, currentConfig.radius, cell.x, cell.y, maxRings);
               return {
-                id: `${cell.x}-${cell.y}`,
+                id: cell.id,
                 latitude: coords.lat,
                 longitude: coords.lng,
                 userRank: cell.rank,
                 x: cell.x,
-                y: cell.y
+                y: cell.y,
+                hasData: cell.hasData
               };
             });
 
@@ -1686,7 +1818,9 @@ function SEOHeatmapInner({
                       {hasScanData && gridNodes.map((node) => {
                         const r = node.userRank;
                         let colorBg = 'bg-emerald-500 hover:bg-emerald-600 text-white ring-8 ring-emerald-500/10 hover:scale-105';
-                        if (r > 3 && r <= 10) {
+                        if (!node.hasData) {
+                          colorBg = 'bg-slate-400 hover:bg-slate-500 text-white ring-8 ring-slate-400/10 hover:scale-105';
+                        } else if (r > 3 && r <= 10) {
                           colorBg = 'bg-amber-500 hover:bg-amber-600 text-white ring-8 ring-amber-500/10 hover:scale-105';
                         } else if (r > 10) {
                           colorBg = 'bg-rose-500 hover:bg-rose-600 text-white ring-8 ring-rose-500/10 hover:scale-105';
@@ -1700,15 +1834,27 @@ function SEOHeatmapInner({
                           <AdvancedMarker
                             key={node.id}
                             position={{ lat: node.latitude, lng: node.longitude }}
-                            onClick={() => setSelectedNode({ x: node.x, y: node.y, rank: r })}
+                            onClick={() => {
+                              const comps = getCompetitorsForNode(
+                                selectedCity,
+                                activeKeyword,
+                                node.x,
+                                node.y,
+                                maxRings,
+                                currentConfig.gmbName,
+                                r,
+                                selectedScanDate !== null ? selectedLog : activeScanData
+                              );
+                              setSelectedNode({ x: node.x, y: node.y, rank: r, competitors: getPopupCompetitors(comps) });
+                            }}
                           >
                             <div 
                               className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm font-mono cursor-pointer transition shadow-sm shrink-0 border ${colorBg} ${ringStyle}`}
                               style={{ transform: 'translate(-50%, -50%)', width: '40px', height: '40px' }}
-                              title={`Coordinate Node [X:${node.x + 1}, Y:${node.y + 1}] - Click to inspect GMB Rank: ${r <= 20 ? '#' + r : '20+'}`}
+                              title={`Coordinate Node [X:${node.x + 1}, Y:${node.y + 1}] - Click to inspect GMB Rank: ${!node.hasData ? 'Unranked' : r <= 20 ? '#' + r : '20+'}`}
                               id={`gmap_marker_${node.x}_${node.y}`}
                             >
-                              {r <= 20 ? r : '20+'}
+                              {!node.hasData ? '-' : r <= 20 ? r : '20+'}
                             </div>
                           </AdvancedMarker>
                         );
@@ -1798,35 +1944,59 @@ function SEOHeatmapInner({
                   {hasScanData ? (
                     <>
                       <div 
-                        className="grid gap-4 p-4 border border-slate-200 bg-white/70 backdrop-blur-xs rounded-2xl shadow-md"
-                        style={{
-                          gridTemplateColumns: `repeat(${size}, minmax(0, 1fr))`
-                        }}
+                        className="relative mx-auto flex items-center justify-center p-8 bg-white/70 backdrop-blur-xs rounded-2xl shadow-md border border-slate-200"
+                        style={{ height: '360px', width: '360px' }}
                       >
-                        {gridCells.map((cell, idx) => {
-                          const r = cell.rank;
-                          let colorBg = 'bg-emerald-500 hover:bg-emerald-700 text-white ring-8 ring-emerald-500/10 hover:scale-105';
-                          if (r > 3 && r <= 10) {
-                            colorBg = 'bg-amber-500 hover:bg-amber-700 text-white ring-8 ring-amber-500/10 hover:scale-105';
-                          } else if (r > 10) {
-                            colorBg = 'bg-rose-500 hover:bg-rose-700 text-white ring-8 ring-rose-500/10 hover:scale-105';
-                          }
+                        <div className="relative w-full h-full flex items-center justify-center">
+                          {gridCells.map((cell) => {
+                            const r = cell.rank;
+                            let colorBg = 'bg-emerald-500 hover:bg-emerald-700 text-white ring-4 ring-emerald-500/30 hover:scale-105';
+                            if (!cell.hasData) {
+                              colorBg = 'bg-slate-400 hover:bg-slate-500 text-white ring-4 ring-slate-400/30 hover:scale-105';
+                            } else if (r > 3 && r <= 10) {
+                              colorBg = 'bg-amber-500 hover:bg-amber-700 text-white ring-4 ring-amber-500/30 hover:scale-105';
+                            } else if (r > 10) {
+                              colorBg = 'bg-rose-500 hover:bg-rose-700 text-white ring-4 ring-rose-500/30 hover:scale-105';
+                            }
 
-                          const isInspected = selectedNode && selectedNode.x === cell.x && selectedNode.y === cell.y;
-                          const ringStyle = isInspected ? 'ring-4 ring-indigo-600 ring-offset-2 border-indigo-600 scale-110 z-20' : 'border-white';
+                            const isInspected = selectedNode && selectedNode.x === cell.x && selectedNode.y === cell.y;
+                            const ringStyle = isInspected ? 'ring-4 ring-indigo-600 ring-offset-2 border-indigo-600 scale-110 z-20 shadow-lg' : 'border-white';
+                            
+                            // Map cell.x (-maxRings to +maxRings) into percentage offset for absolute positioning
+                            // center is 50%, and maxRings distance is 50%
+                            const leftOffset = 50 + (maxRings > 0 ? (cell.x / maxRings) * 45 : 0);
+                            const topOffset = 50 + (maxRings > 0 ? (cell.y / maxRings) * 45 : 0);
 
-                          return (
-                            <button
-                              key={idx}
-                              type="button" 
-                              onClick={() => setSelectedNode({ x: cell.x, y: cell.y, rank: r })}
-                              className={`w-10 h-10 md:w-12 md:h-12 rounded-full flex items-center justify-center font-bold text-sm font-mono cursor-pointer transition shadow-sm shrink-0 border ${colorBg} ${ringStyle}`}
-                              title={`Click to inspect coordinate [X:${cell.x + 1}, Y:${cell.y + 1}] - GMB Rank: ${r <= 20 ? '#' + r : '20+'}`}
-                            >
-                              {r <= 20 ? r : '20+'}
-                            </button>
-                          );
-                        })}
+                            return (
+                              <button
+                                key={cell.id}
+                                type="button" 
+                                onClick={() => {
+                                  const comps = getCompetitorsForNode(
+                                    selectedCity,
+                                    activeKeyword,
+                                    cell.x,
+                                    cell.y,
+                                    maxRings,
+                                    currentConfig.gmbName,
+                                    r,
+                                    selectedScanDate !== null ? selectedLog : activeScanData
+                                  );
+                                  setSelectedNode({ x: cell.x, y: cell.y, rank: r, competitors: getPopupCompetitors(comps) });
+                                }}
+                                className={`absolute w-10 h-10 md:w-11 md:h-11 rounded-full flex items-center justify-center font-bold text-sm font-mono cursor-pointer transition shadow-sm border ${colorBg} ${ringStyle}`}
+                                style={{ 
+                                  left: `${leftOffset}%`, 
+                                  top: `${topOffset}%`,
+                                  transform: 'translate(-50%, -50%)'
+                                }}
+                                title={`Click to inspect coordinate ring ${cell.ring} - GMB Rank: ${!cell.hasData ? 'Unranked' : r <= 20 ? '#' + r : '20+'}`}
+                              >
+                                {!cell.hasData ? '-' : r <= 20 ? r : '20+'}
+                              </button>
+                            );
+                          })}
+                        </div>
                       </div>
 
                       {/* Compass Marker details */}
@@ -1907,7 +2077,7 @@ function SEOHeatmapInner({
             const leaderboard = hasScanData ? getLeaderboard(
               selectedCity,
               activeKeyword,
-              size,
+              maxRings,
               currentConfig.gmbName,
               selectedScanDate,
               selectedScanDate !== null ? selectedLog : activeScanData
@@ -1925,15 +2095,16 @@ function SEOHeatmapInner({
                     </p>
                   </div>
                   <span className="text-[10px] bg-indigo-50 text-indigo-700 font-bold px-2 py-0.5 rounded-md uppercase tracking-wider font-mono">
-                    Top 5 Grid
+                    Global Grid
                   </span>
                 </div>
 
-                <div className="overflow-hidden rounded-xl border border-slate-100">
+                <div className="max-h-96 overflow-y-auto rounded-xl border border-slate-100">
                   <table className="w-full text-xs text-left">
-                    <thead className="bg-slate-50 text-[10px] uppercase font-bold text-slate-500 font-mono tracking-wider border-b border-slate-200">
+                    <thead className="bg-slate-50 text-[10px] uppercase font-bold text-slate-500 font-mono tracking-wider border-b border-slate-200 sticky top-0 z-10">
                       <tr>
-                        <th className="px-3.5 py-2.5">Competitor Name</th>
+                        <th className="px-3.5 py-2.5 w-[50%]">Competitor Name</th>
+                        <th className="px-3 py-2.5 text-center">Reviews</th>
                         <th className="px-3 py-2.5 text-center">Avg Rank</th>
                         <th className="px-3.5 py-2.5 text-right">Top 3 Share (%)</th>
                       </tr>
@@ -1941,7 +2112,7 @@ function SEOHeatmapInner({
                     <tbody className="divide-y divide-slate-100">
                       {leaderboard.length === 0 ? (
                         <tr>
-                          <td colSpan={3} className="px-3.5 py-8 text-center text-slate-400 font-medium">
+                          <td colSpan={4} className="px-3.5 py-8 text-center text-slate-400 font-medium">
                             Run a live scan to analyze competitor market share.
                           </td>
                         </tr>
@@ -1956,19 +2127,24 @@ function SEOHeatmapInner({
                                   : 'hover:bg-slate-50 text-slate-700'
                               }`}
                             >
-                              <td className="px-3.5 py-2.5 flex items-center gap-2">
-                                {item.isUser ? (
-                                  <span className="bg-indigo-600 text-white font-black rounded-full w-4.5 h-4.5 text-[9px] flex items-center justify-center shrink-0 shadow-xs" title="Your Business Profile">
-                                    ★
+                              <td className="px-3.5 py-2.5 flex flex-col gap-0.5">
+                                <div className="flex items-center gap-2">
+                                  {item.isUser ? (
+                                    <span className="bg-indigo-600 text-white font-black rounded-full w-4.5 h-4.5 text-[9px] flex items-center justify-center shrink-0 shadow-xs" title="Your Business Profile">
+                                      ★
+                                    </span>
+                                  ) : (
+                                    <span className="bg-slate-200 text-slate-600 font-bold font-mono rounded-full w-4.5 h-4.5 text-[9px] flex items-center justify-center shrink-0">
+                                      {id + 1}
+                                    </span>
+                                  )}
+                                  <span className="whitespace-normal break-words">
+                                    {item.name}
                                   </span>
-                                ) : (
-                                  <span className="bg-slate-200 text-slate-600 font-bold font-mono rounded-full w-4.5 h-4.5 text-[9px] flex items-center justify-center shrink-0">
-                                    {id + 1}
-                                  </span>
-                                )}
-                                <span className="truncate max-w-[130px]" title={item.name}>
-                                  {item.name}
-                                </span>
+                                </div>
+                              </td>
+                              <td className="px-3 py-2.5 text-center text-[10px] text-slate-500">
+                                {item.rating ? `${item.rating} ⭐ ` : ''}({item.reviews})
                               </td>
                               <td className="px-3 py-2.5 text-center font-mono font-bold">
                                 #{item.avgRank}
@@ -2141,6 +2317,8 @@ function SEOHeatmapInner({
         </div>
 
       </div>
+      </>
+      )}
 
       {/* PARAMETERS CONFIGURATION MODAL */}
       {isModalOpen && (
@@ -2263,6 +2441,8 @@ function SEOHeatmapInner({
                     <option value="3x3">3 x 3 Matrix</option>
                     <option value="5x5">5 x 5 Matrix</option>
                     <option value="7x7">7 x 7 Matrix</option>
+                    <option value="9x9">9 x 9 Matrix</option>
+                    <option value="11x11">11 x 11 Matrix</option>
                   </select>
                 </div>
 
@@ -2309,7 +2489,7 @@ function SEOHeatmapInner({
 
               {/* Dynamic Math Cost Calculator Card */}
               {(() => {
-                const nodeCount = tempGridSize === '3x3' ? 9 : tempGridSize === '5x5' ? 25 : 49;
+                const nodeCount = tempGridSize === '3x3' ? 9 : tempGridSize === '5x5' ? 25 : tempGridSize === '7x7' ? 49 : tempGridSize === '9x9' ? 81 : 121;
                 const freqMultipliers = {
                   'Manual Only': 1,
                   'Daily': 30,
@@ -2347,7 +2527,7 @@ function SEOHeatmapInner({
               <div className="flex items-center justify-between pt-3 border-t border-slate-100 flex-wrap gap-2">
                 <button
                   type="button"
-                  onClick={handleDeleteServiceArea}
+                  onClick={() => handleRemoveArea(selectedCity)}
                   className="px-3.5 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer border-none shadow-sm"
                   title="Delete this service area profile entirely"
                 >
@@ -2392,7 +2572,7 @@ function SEOHeatmapInner({
                   <h3 className="font-extrabold text-sm tracking-tight font-sans">
                     Location Competitors
                   </h3>
-                  <p className="text-[9px] text-indigo-300 font-mono">Grid Pin: [{selectedNode.x + 1}, {selectedNode.y + 1}] • Your Rank: #{selectedNode.rank}</p>
+                  <p className="text-[9px] text-indigo-300 font-mono">Grid Pin: [{selectedNode.x + 1}, {selectedNode.y + 1}] • Your Rank: {selectedNode.rank <= 20 ? `#${selectedNode.rank}` : '20+'}</p>
                 </div>
               </div>
               <button 
@@ -2407,54 +2587,59 @@ function SEOHeatmapInner({
             {/* Competitors List */}
             <div className="p-4 space-y-3">
               <p className="text-[11px] text-slate-500 font-sans">
-                Top 5 local GMB ranking listings for keyword <strong className="text-indigo-600">"{activeKeyword}"</strong> at this geo-grid coordinate:
+                Top local GMB ranking listings for keyword <strong className="text-indigo-600">"{activeKeyword}"</strong> at this geo-grid coordinate:
               </p>
 
               <div className="space-y-2">
-                {getCompetitorsForNode(
-                  selectedCity,
-                  activeKeyword,
-                  selectedNode.x,
-                  selectedNode.y,
-                  size,
-                  currentConfig.gmbName,
-                  selectedNode.rank,
-                  selectedScanDate !== null ? selectedLog : activeScanData
-                ).map((comp) => (
-                  <div
-                    key={comp.rank}
-                    className={`flex items-center justify-between p-2.5 rounded-lg border transition text-xs ${
-                      comp.isUser
-                        ? 'bg-amber-500/10 border-amber-300 ring-1 ring-amber-400/20 shadow-xs'
-                        : 'bg-slate-50 border-slate-100 hover:bg-slate-100/70'
-                    }`}
-                  >
-                    <div className="flex items-center space-x-2.5">
-                      <span className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-black font-mono ${
-                        comp.isUser
-                          ? 'bg-amber-500 text-white'
-                          : comp.rank <= 3
-                          ? 'bg-slate-800 text-white'
-                          : 'bg-slate-200 text-slate-600'
-                      }`}>
-                        #{comp.rank}
-                      </span>
-
-                      <div>
-                        <p className={`font-bold ${comp.isUser ? 'text-amber-950' : 'text-slate-800'}`}>
-                          {comp.name} {comp.isUser && ' (You)'}
-                        </p>
-                        <p className="text-[9px] text-slate-400 mt-0.5">{comp.reviews} reviews • Verified GMB Pin</p>
+                {(() => {
+                  const comps = selectedNode.competitors || [];
+                  
+                  if (comps.length === 0) {
+                    return (
+                      <div className="text-center py-6 text-slate-400 text-xs">
+                        No competitor data available for this coordinate. Run a live scan.
                       </div>
-                    </div>
+                    );
+                  }
 
-                    {comp.isUser && (
-                      <span className="bg-amber-500 text-white text-[8px] font-extrabold uppercase px-1.5 py-0.5 rounded-full whitespace-nowrap">
-                        Target
-                      </span>
-                    )}
-                  </div>
-                ))}
+                  return comps.map((comp) => (
+                    <div
+                      key={`${comp.name}-${comp.rank}`}
+                      className={`flex items-center justify-between p-2.5 rounded-lg border transition text-xs ${
+                        comp.isUser
+                          ? 'bg-amber-500/10 border-amber-300 ring-1 ring-amber-400/20 shadow-xs'
+                          : 'bg-slate-50 border-slate-100 hover:bg-slate-100/70'
+                      }`}
+                    >
+                      <div className="flex items-center space-x-2.5">
+                        <span className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-black font-mono ${
+                          comp.isUser
+                            ? 'bg-amber-500 text-white'
+                            : comp.rank <= 3
+                            ? 'bg-slate-800 text-white'
+                            : 'bg-slate-200 text-slate-600'
+                        }`}>
+                          #{comp.rank}
+                        </span>
+
+                        <div>
+                          <p className={`font-bold ${comp.isUser ? 'text-amber-950' : 'text-slate-800'}`}>
+                            {comp.name} {comp.isUser && ' (You)'}
+                          </p>
+                          <p className="text-[9px] text-slate-400 mt-0.5">
+                            {comp.rating ? `${comp.rating} ⭐ ` : ''}({comp.reviews} reviews) • Verified GMB Pin
+                          </p>
+                        </div>
+                      </div>
+
+                      {comp.isUser && (
+                        <span className="bg-amber-500 text-white text-[8px] font-extrabold uppercase px-1.5 py-0.5 rounded-full whitespace-nowrap">
+                          Target
+                        </span>
+                      )}
+                    </div>
+                  ));
+                })()}
               </div>
 
               <div className="bg-indigo-50 text-[10px] text-indigo-900 rounded-lg p-2.5 border border-indigo-100 flex items-start gap-1.5">
@@ -2581,6 +2766,8 @@ function SEOHeatmapInner({
                     <option value="3x3">3 x 3 Matrix</option>
                     <option value="5x5">5 x 5 Matrix</option>
                     <option value="7x7">7 x 7 Matrix</option>
+                    <option value="9x9">9 x 9 Matrix</option>
+                    <option value="11x11">11 x 11 Matrix</option>
                   </select>
                 </div>
 
@@ -2610,7 +2797,7 @@ function SEOHeatmapInner({
         </div>
       )}
 
-      {/* DATAFORSEO & GOOGLE MAPS API SETTINGS MODAL */}
+        {/* DATAFORSEO & GOOGLE MAPS API SETTINGS MODAL */}
       {isSettingsOpen && (
         <div id="dataforseo_settings_modal" className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 overflow-y-auto animate-fadeIn">
           <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-sm w-full overflow-hidden transition-all duration-200 my-auto">
