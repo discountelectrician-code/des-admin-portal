@@ -123,7 +123,10 @@ export default function TelemetryDashboard() {
           message: data.message || '',
           status: data.status || 'info',
           details: data.details || '',
-          'Page Path': data['Page Path'] || data.path || data.url || data.currentPath || ''
+          'Page Path': data['Page Path'] || data.path || data.url || data.currentPath || '',
+          sessionId: data.sessionId,
+          visitorId: data.visitorId,
+          isReturningVisitor: data.isReturningVisitor
         });
       });
       setEvents(loadedEvents);
@@ -240,37 +243,21 @@ export default function TelemetryDashboard() {
   const formatTableTimestamp = (date: Date): string => {
     const mm = String(date.getMonth() + 1).padStart(2, '0');
     const dd = String(date.getDate()).padStart(2, '0');
-    const hh = String(date.getHours()).padStart(2, '0');
+    let hours = date.getHours();
+    const ampm = hours >= 12 ? 'PM' : 'AM';
+    hours = hours % 12;
+    hours = hours ? hours : 12; // the hour '0' should be '12'
+    const hh = String(hours).padStart(2, '0');
     const min = String(date.getMinutes()).padStart(2, '0');
-    return `${mm}/${dd} ${hh}:${min}`;
+    return `${mm}/${dd} ${hh}:${min} ${ampm}`;
   };
 
   // Helper to determine visitor status client-side based on historic activity sequences in memory
-  const getVisitorStatus = (evt: TrackingEvent, allEvents: TrackingEvent[]): 'New' | 'Returning' | 'Visitor' => {
-    const email = evt.userEmail?.toLowerCase().trim();
-    const uid = evt.userId?.trim();
-
-    if ((!email || email === 'anonymous' || email === 'guest visitor') && (!uid || uid === 'anonymous')) {
+  const getVisitorStatus = (evt: TrackingEvent, allEvents: TrackingEvent[]): 'New Visitor' | 'Returning Visitor' | 'Visitor' => {
+    if (evt.isReturningVisitor === undefined || !evt.sessionId) {
       return 'Visitor';
     }
-
-    const evtDate = getEventDate(evt);
-
-    const hasPrior = allEvents.some((other) => {
-      if (other.id === evt.id) return false;
-      const otherDate = getEventDate(other);
-      if (otherDate >= evtDate) return false;
-
-      const otherEmail = other.userEmail?.toLowerCase().trim();
-      const otherUid = other.userId?.trim();
-
-      if (email && email !== 'anonymous' && otherEmail === email) return true;
-      if (uid && uid !== 'anonymous' && otherUid === uid) return true;
-
-      return false;
-    });
-
-    return hasPrior ? 'Returning' : 'New';
+    return evt.isReturningVisitor ? 'Returning Visitor' : 'New Visitor';
   };
 
   // 2. Hard Filter for Public Traffic Only & Clean Paths
@@ -599,20 +586,46 @@ export default function TelemetryDashboard() {
 
                     // Badge theme calculations
                     let statusBadgeClass = '';
-                    if (status === 'New') {
-                      statusBadgeClass = 'bg-emerald-50 text-emerald-700 border border-emerald-150';
-                    } else if (status === 'Returning') {
-                      statusBadgeClass = 'bg-indigo-50 text-indigo-700 border border-indigo-150';
+                    if (status === 'New Visitor') {
+                      statusBadgeClass = 'bg-cyan-50 text-cyan-700 border border-cyan-200';
+                    } else if (status === 'Returning Visitor') {
+                      statusBadgeClass = 'bg-emerald-50 text-emerald-700 border border-emerald-200';
                     } else {
                       statusBadgeClass = 'bg-slate-50 text-slate-500 border border-slate-200';
+                    }
+
+                    // Session Grouping Indicator (color-stripe on the left)
+                    let sessionBorder = 'border-l-[3px] border-transparent';
+                    const groupKey = evt.visitorId || evt.sessionId;
+                    if (groupKey) {
+                      let hash = 0;
+                      for (let i = 0; i < groupKey.length; i++) {
+                        hash = groupKey.charCodeAt(i) + ((hash << 5) - hash);
+                      }
+                      const colors = [
+                        'border-emerald-400', 'border-indigo-400', 'border-amber-400', 
+                        'border-rose-400', 'border-cyan-400', 'border-fuchsia-400',
+                        'border-blue-400', 'border-violet-400'
+                      ];
+                      sessionBorder = `border-l-[3px] ${colors[Math.abs(hash) % colors.length]}`;
                     }
 
                     return (
                       <tr key={evt.id} className="hover:bg-slate-50/50 transition">
                         {/* Timestamp columns */}
-                        <td className="px-5 py-3 font-mono text-slate-600 flex items-center space-x-2">
+                        <td className={`px-5 py-3 font-mono text-slate-600 flex items-center space-x-2 ${sessionBorder}`}>
                           <Clock className="w-3.5 h-3.5 text-slate-400 shrink-0" />
                           <span>{formatTableTimestamp(dateObj)}</span>
+                          {(evt.visitorId || evt.sessionId) && (
+                            <span 
+                              className="ml-3 text-[11px] bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded border border-indigo-200 font-bold tracking-tight shadow-sm uppercase" 
+                              title={`Visitor/Session ID: ${evt.visitorId || evt.sessionId}`}
+                            >
+                              {(evt.visitorId || evt.sessionId)!.length <= 15 
+                                ? (evt.visitorId || evt.sessionId) 
+                                : (evt.visitorId || evt.sessionId)!.substring(0, 4)}
+                            </span>
+                          )}
                         </td>
 
                         {/* Page Path columns */}

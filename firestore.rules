@@ -73,21 +73,18 @@ service cloud.firestore {
 
     function isValidTrackingEvent(data) {
       return data.keys().hasAll(['id', 'timestamp', 'eventType', 'subdomain', 'userId', 'userEmail', 'message', 'status', 'details'])
-        && data.keys().size() == 9
         && data.id is string
         && data.id.size() <= 128
         && data.userId == request.auth.uid
         && data.userEmail == request.auth.token.email
         && data.eventType is string
-        && data.eventType in ['auth', 'payment', 'timecard', 'system', 'error']
         && data.subdomain is string
-        && data.subdomain in ['admin', 'pay', 'timecard']
         && data.status is string
-        && data.status in ['info', 'success', 'warning', 'error']
         && data.message is string
-        && data.message.size() <= 500
         && data.details is string
-        && data.details.size() <= 2000;
+        && (!('sessionId' in data) || data.sessionId is string)
+        && (!('visitorId' in data) || data.visitorId is string)
+        && (!('isReturningVisitor' in data) || data.isReturningVisitor is bool);
     }
 
     function isValidPaymentConfig(data) {

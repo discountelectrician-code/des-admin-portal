@@ -47,6 +47,9 @@ export interface TrackingEvent {
   status: 'info' | 'success' | 'warning' | 'error';
   details: string;
   'Page Path'?: string;
+  sessionId?: string;
+  visitorId?: string;
+  isReturningVisitor?: boolean;
 }
 
 export interface SEOAreaProfile {

@@ -49,7 +49,10 @@
         "userEmail": { "type": "string", "description": "Email of the user associated with this event." },
         "message": { "type": "string", "description": "A descriptive message detailing the telemetry event." },
         "status": { "type": "string", "enum": ["info", "success", "warning", "error"], "description": "Log severity/status." },
-        "details": { "type": "string", "description": "Additional JSON metadata or details as string." }
+        "details": { "type": "string", "description": "Additional JSON metadata or details as string." },
+        "sessionId": { "type": "string", "description": "The unique session ID." },
+        "visitorId": { "type": "string", "description": "The unique visitor ID." },
+        "isReturningVisitor": { "type": "boolean", "description": "Flag indicating if the user is a returning visitor." }
       },
       "required": ["id", "timestamp", "eventType", "subdomain", "userId", "userEmail", "message", "status"]
     },
