@@ -35,15 +35,15 @@ async function processEmployee(data: any) {
     mappedData.email = data.email || data['Email'] || '';
     mappedData.phone = data['Mobile #'] || data.phone || '';
     
-    let role = data.role || data['Role'];
+    let role = data['Tech Access Level'] || data.role || data['Role'];
     if (!['Lead', 'Technician', 'Admin'].includes(role)) {
        role = 'Technician';
     }
     mappedData.role = role;
     
     mappedData.preferredColor = data['Hex Color'] || data.preferredColor || data.hexColor || '';
-    mappedData.isActive = typeof data.isActive === 'boolean' ? data.isActive : true;
-    mappedData.legacyId = data['ID'] !== undefined ? String(data['ID']) : (data.legacyId || null);
+    mappedData.isActive = true;
+    mappedData.legacyId = data['unique id'] !== undefined ? String(data['unique id']) : (data['ID'] !== undefined ? String(data['ID']) : (data.legacyId || null));
   }
 
   if (!mappedData.name || !mappedData.email) {
