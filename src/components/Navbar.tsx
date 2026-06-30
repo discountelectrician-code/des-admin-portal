@@ -20,12 +20,13 @@ import {
   CreditCard,
   Phone,
   MessageSquare,
-  Map
+  Map,
+  Database
 } from 'lucide-react';
 
 interface NavbarProps {
-  activeTab: 'telemetry' | 'permissions' | 'payment' | 'quo_routing' | 'lead_recovery' | 'seo_heatmap';
-  setActiveTab: (tab: 'telemetry' | 'permissions' | 'payment' | 'quo_routing' | 'lead_recovery' | 'seo_heatmap') => void;
+  activeTab: 'telemetry' | 'permissions' | 'payment' | 'quo_routing' | 'lead_recovery' | 'seo_heatmap' | 'migration';
+  setActiveTab: (tab: 'telemetry' | 'permissions' | 'payment' | 'quo_routing' | 'lead_recovery' | 'seo_heatmap' | 'migration') => void;
   currentUser: User | null;
 }
 
@@ -166,17 +167,30 @@ export default function Navbar({ activeTab, setActiveTab, currentUser }: NavbarP
               </button>
 
               {activeClaims.admin && (
-                <button
-                  onClick={() => setActiveTab('quo_routing')}
-                  className={`flex items-center space-x-2 px-4 py-2 rounded-lg font-semibold transition ${
-                    activeTab === 'quo_routing' 
-                      ? 'bg-slate-800 text-amber-400 border border-slate-700 shadow-sm' 
-                      : 'text-slate-350 hover:text-white hover:bg-slate-800/40'
-                  }`}
-                >
-                  <Phone className="w-4 h-4" />
-                  <span>Quo Outbound Routing</span>
-                </button>
+                <>
+                  <button
+                    onClick={() => setActiveTab('quo_routing')}
+                    className={`flex items-center space-x-2 px-4 py-2 rounded-lg font-semibold transition ${
+                      activeTab === 'quo_routing' 
+                        ? 'bg-slate-800 text-amber-400 border border-slate-700 shadow-sm' 
+                        : 'text-slate-350 hover:text-white hover:bg-slate-800/40'
+                    }`}
+                  >
+                    <Phone className="w-4 h-4" />
+                    <span>Quo Outbound Routing</span>
+                  </button>
+                  <button
+                    onClick={() => setActiveTab('migration')}
+                    className={`flex items-center space-x-2 px-4 py-2 rounded-lg font-semibold transition ${
+                      activeTab === 'migration' 
+                        ? 'bg-slate-800 text-amber-400 border border-slate-700 shadow-sm' 
+                        : 'text-slate-350 hover:text-white hover:bg-slate-800/40'
+                    }`}
+                  >
+                    <Database className="w-4 h-4" />
+                    <span>Migration Utility</span>
+                  </button>
+                </>
               )}
             </nav>
           )}
@@ -263,15 +277,26 @@ export default function Navbar({ activeTab, setActiveTab, currentUser }: NavbarP
               <span className="text-[9px] tracking-tight text-center truncate w-full">Recovery</span>
             </button>
             {activeClaims.admin && (
-              <button
-                onClick={() => setActiveTab('quo_routing')}
-                className={`flex flex-col items-center justify-center space-y-1 flex-1 transition cursor-pointer border-none bg-transparent ${
-                  activeTab === 'quo_routing' ? 'text-amber-400 font-bold' : 'text-slate-400 hover:text-slate-200'
-                }`}
-              >
-                <Phone className="w-5 h-5" />
-                <span className="text-[9px] tracking-tight text-center truncate w-full">Routing</span>
-              </button>
+              <>
+                <button
+                  onClick={() => setActiveTab('quo_routing')}
+                  className={`flex flex-col items-center justify-center space-y-1 flex-1 transition cursor-pointer border-none bg-transparent ${
+                    activeTab === 'quo_routing' ? 'text-amber-400 font-bold' : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  <Phone className="w-5 h-5" />
+                  <span className="text-[9px] tracking-tight text-center truncate w-full">Routing</span>
+                </button>
+                <button
+                  onClick={() => setActiveTab('migration')}
+                  className={`flex flex-col items-center justify-center space-y-1 flex-1 transition cursor-pointer border-none bg-transparent ${
+                    activeTab === 'migration' ? 'text-amber-400 font-bold' : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  <Database className="w-5 h-5" />
+                  <span className="text-[9px] tracking-tight text-center truncate w-full">Migration</span>
+                </button>
+              </>
             )}
           </div>
         )}

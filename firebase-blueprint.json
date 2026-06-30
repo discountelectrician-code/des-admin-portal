@@ -126,19 +126,87 @@
       "description": "Represents a customer in the CRM.",
       "type": "object",
       "properties": {
-        "firstName": { "type": "string" },
-        "lastName": { "type": "string" },
-        "email": { "type": "string" },
-        "phone": { "type": "string" },
-        "address": { "type": "string" },
-        "status": { "type": "string" },
-        "notes": { "type": "string" },
+        "name": { "type": "string" },
         "company": { "type": "string" },
-        "source": { "type": "string" },
+        "contact": { "type": "object" },
+        "integrationKeys": { "type": "object" },
+        "customerSince": { "type": "string", "format": "date-time" },
+        "legacyId": { "type": "string" },
         "createdAt": { "type": "string", "format": "date-time" },
         "updatedAt": { "type": "string", "format": "date-time" }
       },
-      "required": ["firstName"]
+      "required": ["name"]
+    },
+    "appointment": {
+      "title": "Appointment",
+      "description": "Represents a scheduled service or estimate.",
+      "type": "object",
+      "properties": {
+        "customerId": { "type": "string", "nullable": true },
+        "worksiteId": { "type": "string", "nullable": true },
+        "leadUserId": { "type": "string", "nullable": true },
+        "crewUserIds": { "type": "array", "items": { "type": "string" } },
+        "type": { "type": "string", "enum": ["Estimate", "Job", "Warranty", "Internal"] },
+        "schedule": { "type": "object" },
+        "details": { "type": "object" },
+        "legacyColor": { "type": "string" },
+        "legacyCrewNames": { "type": "array", "items": { "type": "string" } },
+        "legacyData": { "type": "object" },
+        "legacyId": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["type", "schedule"]
+    },
+    "worksite": {
+      "title": "Worksite",
+      "description": "Represents a physical location or jobsite linked to a customer.",
+      "type": "object",
+      "properties": {
+        "customerId": { "type": "string" },
+        "location": { "type": "object" },
+        "specs": { "type": "object" },
+        "electrical": { "type": "object" },
+        "legacyId": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["customerId"]
+    },
+    "invoice": {
+      "title": "Invoice",
+      "description": "Represents a billing invoice with line items.",
+      "type": "object",
+      "properties": {
+        "invoiceNumber": { "type": "string" },
+        "customerId": { "type": "string" },
+        "worksiteId": { "type": "string" },
+        "appointmentId": { "type": "string", "nullable": true },
+        "lineItems": { "type": "array", "items": { "type": "object" } },
+        "financials": { "type": "object" },
+        "status": { "type": "object" },
+        "legacyId": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["invoiceNumber", "customerId", "worksiteId", "lineItems", "financials", "status"]
+    },
+    "employee": {
+      "title": "Employee",
+      "description": "Represents an employee or technician identity.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "email": { "type": "string" },
+        "phone": { "type": "string" },
+        "role": { "type": "string", "enum": ["Lead", "Technician", "Admin"] },
+        "preferredColor": { "type": "string" },
+        "isActive": { "type": "boolean" },
+        "legacyId": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name", "email"]
     },
     "seo_scan": {
       "title": "SEO Heatmap Scan",
@@ -187,6 +255,22 @@
     "customers/{customerId}": {
       "schema": "customer",
       "description": "Stores CRM customers."
+    },
+    "worksites/{worksiteId}": {
+      "schema": "worksite",
+      "description": "Stores customer worksites."
+    },
+    "appointments/{appointmentId}": {
+      "schema": "appointment",
+      "description": "Stores appointments and schedules."
+    },
+    "invoices/{invoiceId}": {
+      "schema": "invoice",
+      "description": "Stores invoices."
+    },
+    "employees/{employeeId}": {
+      "schema": "employee",
+      "description": "Stores employee profiles."
     },
     "seo_scans/{scanId}": {
       "schema": "seo_scan",

@@ -51,13 +51,14 @@ import QuoRoutingConfig from './components/QuoRoutingConfig';
 import OnboardingPage from './components/OnboardingPage';
 import LeadRecovery from './components/LeadRecovery';
 import SEOHeatmap from './components/SEOHeatmap';
+import MigrationUtility from './components/MigrationUtility';
 
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const [isInitializing, setIsInitializing] = useState(true);
   const [userTechLevel, setUserTechLevel] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'telemetry' | 'permissions' | 'payment' | 'quo_routing' | 'lead_recovery' | 'seo_heatmap'>('telemetry');
+  const [activeTab, setActiveTab] = useState<'telemetry' | 'permissions' | 'payment' | 'quo_routing' | 'lead_recovery' | 'seo_heatmap' | 'migration'>('telemetry');
 
   // Secure Single-Page routing path tracking
   const [currentPath, setCurrentPath] = useState(window.location.pathname.toLowerCase());
@@ -547,6 +548,8 @@ export default function App() {
             <PaymentSettings />
           ) : activeTab === 'lead_recovery' ? (
             <LeadRecovery />
+          ) : activeTab === 'migration' ? (
+            <MigrationUtility />
           ) : (
             <QuoRoutingConfig />
           )}

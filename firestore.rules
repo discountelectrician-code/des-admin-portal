@@ -118,16 +118,68 @@ service cloud.firestore {
     }
 
     function isValidCustomer(data) {
-      return data.keys().hasAll(['firstName'])
-        && data.firstName is string
-        && (!('lastName' in data) || data.lastName is string)
-        && (!('email' in data) || data.email is string)
+      return data.keys().hasAll(['name'])
+        && data.name is string
+        && (!('company' in data) || data.company is string || data.company == null)
+        && (!('contact' in data) || data.contact is map)
+        && (!('integrationKeys' in data) || data.integrationKeys is map)
+        && (!('customerSince' in data) || data.customerSince is timestamp || data.customerSince is string)
+        && (!('legacyId' in data) || data.legacyId is string)
+        && (!('createdAt' in data) || data.createdAt is timestamp || data.createdAt is string)
+        && (!('updatedAt' in data) || data.updatedAt is timestamp || data.updatedAt is string);
+    }
+
+    function isValidWorksite(data) {
+      return data.keys().hasAll(['customerId'])
+        && data.customerId is string
+        && (!('location' in data) || data.location is map)
+        && (!('specs' in data) || data.specs is map)
+        && (!('electrical' in data) || data.electrical is map)
+        && (!('legacyId' in data) || data.legacyId is string)
+        && (!('createdAt' in data) || data.createdAt is timestamp || data.createdAt is string)
+        && (!('updatedAt' in data) || data.updatedAt is timestamp || data.updatedAt is string);
+    }
+
+    function isValidAppointment(data) {
+      return data.keys().hasAll(['type', 'schedule'])
+        && data.type in ['Estimate', 'Job', 'Warranty', 'Internal']
+        && data.schedule is map
+        && (!('customerId' in data) || data.customerId is string || data.customerId == null)
+        && (!('worksiteId' in data) || data.worksiteId is string || data.worksiteId == null)
+        && (!('leadUserId' in data) || data.leadUserId is string || data.leadUserId == null)
+        && (!('crewUserIds' in data) || data.crewUserIds is list)
+        && (!('details' in data) || data.details is map)
+        && (!('legacyColor' in data) || data.legacyColor is string)
+        && (!('legacyCrewNames' in data) || data.legacyCrewNames is list)
+        && (!('legacyData' in data) || data.legacyData is map)
+        && (!('legacyId' in data) || data.legacyId is string)
+        && (!('createdAt' in data) || data.createdAt is timestamp || data.createdAt is string)
+        && (!('updatedAt' in data) || data.updatedAt is timestamp || data.updatedAt is string);
+    }
+
+    function isValidInvoice(data) {
+      return data.keys().hasAll(['invoiceNumber', 'customerId', 'worksiteId', 'lineItems', 'financials', 'status'])
+        && data.invoiceNumber is string
+        && data.customerId is string
+        && data.worksiteId is string
+        && (!('appointmentId' in data) || data.appointmentId is string || data.appointmentId == null)
+        && data.lineItems is list
+        && data.financials is map
+        && data.status is map
+        && (!('legacyId' in data) || data.legacyId is string)
+        && (!('createdAt' in data) || data.createdAt is timestamp || data.createdAt is string)
+        && (!('updatedAt' in data) || data.updatedAt is timestamp || data.updatedAt is string);
+    }
+
+    function isValidEmployee(data) {
+      return data.keys().hasAll(['name', 'email'])
+        && data.name is string
+        && data.email is string
         && (!('phone' in data) || data.phone is string)
-        && (!('address' in data) || data.address is string)
-        && (!('status' in data) || data.status is string)
-        && (!('notes' in data) || data.notes is string)
-        && (!('company' in data) || data.company is string)
-        && (!('source' in data) || data.source is string)
+        && (!('role' in data) || data.role in ['Lead', 'Technician', 'Admin'])
+        && (!('preferredColor' in data) || data.preferredColor is string)
+        && (!('isActive' in data) || data.isActive is bool)
+        && (!('legacyId' in data) || data.legacyId is string)
         && (!('createdAt' in data) || data.createdAt is timestamp || data.createdAt is string)
         && (!('updatedAt' in data) || data.updatedAt is timestamp || data.updatedAt is string);
     }
@@ -240,6 +292,34 @@ service cloud.firestore {
     match /customers/{customerId} {
       allow read: if isAdmin();
       allow create, update: if isValidCustomer(incoming());
+      allow delete: if isAdmin();
+    }
+
+    // Customer Worksites
+    match /worksites/{worksiteId} {
+      allow read: if isAdmin();
+      allow create, update: if isValidWorksite(incoming());
+      allow delete: if isAdmin();
+    }
+
+    // Appointments
+    match /appointments/{appointmentId} {
+      allow read: if isAdmin();
+      allow create, update: if isValidAppointment(incoming());
+      allow delete: if isAdmin();
+    }
+
+    // Invoices
+    match /invoices/{invoiceId} {
+      allow read: if isAdmin();
+      allow create, update: if isValidInvoice(incoming());
+      allow delete: if isAdmin();
+    }
+
+    // Employees
+    match /employees/{employeeId} {
+      allow read: if isAdmin();
+      allow create, update: if isValidEmployee(incoming());
       allow delete: if isAdmin();
     }
 
