@@ -153,9 +153,9 @@ export default function MigrationUtility() {
         if (res.ok) {
           resultStats.success++;
         } else {
-          const errorData = await res.json();
+          const errorData = await res.json().catch(() => ({}));
           resultStats.failed++;
-          resultStats.errors.push({ index: i, reason: errorData.error || 'Server rejected payload', record });
+          resultStats.errors.push({ index: i, reason: errorData.message || errorData.error || 'Server rejected payload', record });
         }
       } catch (err: any) {
         resultStats.failed++;
