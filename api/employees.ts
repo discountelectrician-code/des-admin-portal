@@ -1,4 +1,4 @@
-import { db } from '../src/firebase';
+import { db } from '../src/firebase.js';
 import { collection, addDoc, doc, setDoc, serverTimestamp } from 'firebase/firestore';
 
 async function processEmployee(data: any) {
