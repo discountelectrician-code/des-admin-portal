@@ -1,5 +1,5 @@
 import { db } from '../src/firebase.js';
-import { collection, addDoc, doc, setDoc, serverTimestamp } from 'firebase/firestore';
+import { collection, addDoc, doc, setDoc, serverTimestamp, query, where, getDocs } from 'firebase/firestore';
 
 export default async function handler(req: any, res: any) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -85,6 +85,57 @@ export default async function handler(req: any, res: any) {
           details: data['Switches Details'] || ''
         }
       };
+    }
+
+    if (typeof mappedData.customerId !== 'string' || !mappedData.customerId.trim()) {
+      let foundCustomerId = null;
+      const street = mappedData.location.street || data['Street'] || '';
+      const geoAddress = data['Geographic Address'] || '';
+
+      const searchQueries = [];
+      if (street) searchQueries.push(street);
+      if (geoAddress && geoAddress !== street) searchQueries.push(geoAddress);
+
+      for (const searchTerm of searchQueries) {
+         if (foundCustomerId) break;
+
+         // Try finding customer by address.street
+         let q = query(collection(db, 'customers'), where('address.street', '==', searchTerm));
+         let qs = await getDocs(q);
+         if (!qs.empty) {
+           foundCustomerId = qs.docs[0].id;
+           break;
+         }
+
+         // Try finding customer by full geographic address
+         q = query(collection(db, 'customers'), where('address.full', '==', searchTerm));
+         qs = await getDocs(q);
+         if (!qs.empty) {
+           foundCustomerId = qs.docs[0].id;
+           break;
+         }
+
+         // Try finding by worksite street
+         q = query(collection(db, 'worksites'), where('street', '==', searchTerm));
+         qs = await getDocs(q);
+         if (!qs.empty && qs.docs[0].data().customerId) {
+           foundCustomerId = qs.docs[0].data().customerId;
+           break;
+         }
+         
+         q = query(collection(db, 'worksites'), where('location.street', '==', searchTerm));
+         qs = await getDocs(q);
+         if (!qs.empty && qs.docs[0].data().customerId) {
+           foundCustomerId = qs.docs[0].data().customerId;
+           break;
+         }
+      }
+
+      if (foundCustomerId) {
+        mappedData.customerId = foundCustomerId;
+      } else {
+        mappedData.customerId = 'unassigned-legacy-worksites';
+      }
     }
 
     if (typeof mappedData.customerId !== 'string' || !mappedData.customerId.trim()) {
