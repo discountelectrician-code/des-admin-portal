@@ -153,9 +153,21 @@ export default function MigrationUtility() {
         if (res.ok) {
           resultStats.success++;
         } else {
-          const errorData = await res.json().catch(() => ({}));
+          let errorMessage = `${res.status} ${res.statusText}`;
+          try {
+            const errorText = await res.text();
+            try {
+              const errorJson = JSON.parse(errorText);
+              errorMessage = errorJson.message || errorJson.error || errorJson.details || JSON.stringify(errorJson);
+            } catch {
+              errorMessage = errorText ? (errorText.length > 200 ? errorText.substring(0, 200) + '...' : errorText) : errorMessage;
+            }
+          } catch (e) {
+            // Failed to read response body
+          }
+          
           resultStats.failed++;
-          resultStats.errors.push({ index: i, reason: errorData.message || errorData.error || 'Server rejected payload', record });
+          resultStats.errors.push({ index: i, reason: errorMessage, record });
         }
       } catch (err: any) {
         resultStats.failed++;
