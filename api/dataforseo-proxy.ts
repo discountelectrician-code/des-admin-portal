@@ -1,8 +1,9 @@
+import { corsHeaders } from '../src/utils/cors.js';
 export default async function handler(req: any, res: any) {
   // CORS Headers
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  Object.entries(corsHeaders).forEach(([key, value]) => {
+    res.setHeader(key, value);
+  });
 
   if (req.method === 'OPTIONS') {
     return res.status(200).end();
@@ -55,4 +56,8 @@ export default async function handler(req: any, res: any) {
     console.error("Vercel Proxy Exception:", err);
     return res.status(500).json({ error: err.message || "Internal Server Error in proxy" });
   }
+}
+
+export async function OPTIONS(request: Request) {
+  return new Response(null, { status: 200, headers: corsHeaders });
 }

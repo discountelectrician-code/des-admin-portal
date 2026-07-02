@@ -1,3 +1,4 @@
+import { corsHeaders } from '../src/utils/cors.js';
 import fs from 'fs';
 import path from 'path';
 import { initializeApp } from 'firebase/app';
@@ -132,9 +133,9 @@ function generateRealCompetitorsForNode(
 // Main Cron Scanner API Handler
 export default async function handler(req: any, res: any) {
   // CORS Headers
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  Object.entries(corsHeaders).forEach(([key, value]) => {
+    res.setHeader(key, value);
+  });
 
   if (req.method === 'OPTIONS') {
     return res.status(200).end();
@@ -334,4 +335,8 @@ export default async function handler(req: any, res: any) {
       error: globalErr.message || "Internal Server Error in cron scheduler backend"
     });
   }
+}
+
+export async function OPTIONS(request: Request) {
+  return new Response(null, { status: 200, headers: corsHeaders });
 }
