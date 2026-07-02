@@ -11,6 +11,17 @@ export default async function handler(req: any, res: any) {
     return res.status(200).end();
   }
 
+  if (req.method === 'GET') {
+    try {
+      const snapshot = await getDocs(collection(db, 'appointments'));
+      const appointments = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      return res.status(200).json(appointments);
+    } catch (error: any) {
+      console.error('Appointment API Error (GET):', error);
+      return res.status(500).json({ error: 'Internal Server Error', details: error.message });
+    }
+  }
+
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method Not Allowed' });
   }

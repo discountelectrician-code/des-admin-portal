@@ -89,6 +89,18 @@ export default async function handler(req: any, res: any) {
     return res.status(200).end();
   }
 
+  if (req.method === 'GET') {
+    try {
+      const { getDocs } = await import('firebase/firestore');
+      const snapshot = await getDocs(collection(db, 'employees'));
+      const employees = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      return res.status(200).json(employees);
+    } catch (error: any) {
+      console.error('Employee API Error (GET):', error);
+      return res.status(500).json({ status: 'error', message: 'Internal Server Error', details: error.message });
+    }
+  }
+
   if (req.method !== 'POST') {
     return res.status(405).json({ status: 'error', message: 'Method Not Allowed' });
   }
