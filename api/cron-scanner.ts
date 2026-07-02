@@ -337,6 +337,3 @@ export default async function handler(req: any, res: any) {
   }
 }
 
-export async function OPTIONS(request: Request) {
-  return new Response(null, { status: 200, headers: corsHeaders });
-}
