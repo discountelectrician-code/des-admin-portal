@@ -80,8 +80,16 @@ export default async function handler(req: any, res: any) {
       mappedData.lineItems = lineItems;
     }
 
-    if (!mappedData.invoiceNumber || !mappedData.customerId || !mappedData.worksiteId) {
-      return res.status(400).json({ error: 'invoiceNumber, customerId, and worksiteId are required' });
+    if (!mappedData.invoiceNumber) {
+      mappedData.invoiceNumber = `legacy-unnamed-inv-${Math.random()}`;
+    }
+
+    if (!mappedData.customerId) {
+      mappedData.customerId = 'unassigned-legacy-invoice';
+    }
+
+    if (!mappedData.worksiteId) {
+      mappedData.worksiteId = 'unassigned-legacy-invoice';
     }
 
     const finalRecord: any = {
